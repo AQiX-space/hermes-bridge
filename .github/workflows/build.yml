@@ -30,6 +30,29 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\UpdateVerifyTests.exe tests\fixtures\signed-beta1.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Update swap and rollback tests
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'hermes-updater-regression'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $dst=Join-Path $root 'HermesBridge.exe'
+          $src=Join-Path $root 'candidate.exe'
+          [IO.File]::WriteAllText($dst,'old-good-version')
+          [IO.File]::WriteAllText($src,'new-validated-version')
+          $hash=(Get-FileHash $src -Algorithm SHA256).Hash.ToLowerInvariant()
+          & .\HermesBridgeUpdater.exe '2147483646' $src $dst $hash 'test-no-launch'
+          if ($LASTEXITCODE -ne 0) { throw "swap failed: $LASTEXITCODE" }
+          if ([IO.File]::ReadAllText($dst) -cne 'new-validated-version') { throw 'new binary not installed' }
+          if ([IO.File]::ReadAllText("$dst.previous") -cne 'old-good-version') { throw 'backup not preserved' }
+          Write-Output 'PASS: verified replacement and backup'
+          [IO.File]::WriteAllText($dst,'old-good-version')
+          [IO.File]::WriteAllText($src,'not-a-real-exe')
+          $hash=(Get-FileHash $src -Algorithm SHA256).Hash.ToLowerInvariant()
+          & .\HermesBridgeUpdater.exe '2147483646' $src $dst $hash 'launch'
+          if ($LASTEXITCODE -ne 10) { throw "expected rollback exit 10, got: $LASTEXITCODE" }
+          if ([IO.File]::ReadAllText($dst) -cne 'old-good-version') { throw 'rollback failed' }
+          Write-Output 'PASS: failed launch restores previous version'
+          Remove-Item -Recurse -Force $root
       - name: Enrollment regression tests
         shell: pwsh
         run: python server/test_enroll.py
