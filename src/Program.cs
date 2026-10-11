@@ -15,7 +15,7 @@ namespace HermesBridge {
  sealed class BridgeForm : Form {
   readonly string root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesBridge");
   TextBox host=new TextBox(),port=new TextBox(),slot=new TextBox(),known=new TextBox(),device=new TextBox();
-  NumericUpDown ttl=new NumericUpDown(); Label state=new Label(); Button start=new Button(),stop=new Button(),reload=new Button(),save=new Button();
+  NumericUpDown ttl=new NumericUpDown(); Label state=new Label(); Button start=new Button(),stop=new Button(),reload=new Button(),save=new Button(),import=new Button();
   NotifyIcon tray=new NotifyIcon(); System.Windows.Forms.Timer heartbeat=new System.Windows.Forms.Timer();
   Process tunnel; DateTime deadline; bool running=false, quitting=false;
   string Config {get{return Path.Combine(root,"client.ini");}}
@@ -29,7 +29,7 @@ namespace HermesBridge {
    Label time=new Label(){Text="Сессия, минут",Left=16,Top=y+5,Width=240};Controls.Add(time);ttl.Left=264;ttl.Top=y;ttl.Width=85;ttl.Minimum=5;ttl.Maximum=240;ttl.Value=60;y+=38;
    save.Text="Save";start.Text="Start";stop.Text="Stop";reload.Text="Reload";
    Button[] buttons={save,start,stop,reload};for(int i=0;i<buttons.Length;i++){buttons[i].Left=18+i*135;buttons[i].Top=y;buttons[i].Width=120;Controls.Add(buttons[i]);}
-   y+=45;Button enroll=new Button(){Text="Создать ключ / скопировать PUBLIC",Left=18,Top=y,Width=340};Controls.Add(enroll);enroll.Click+=(s,e)=>{if(EnsureKey()){Clipboard.SetText(File.ReadAllText(Key+".pub"));Status("Публичный ключ создан и скопирован. Передай его оператору для регистрации.");}};y+=38;state.Left=18;state.Top=y;state.Width=545;state.Height=55;Controls.Add(state);
+   y+=45;import.Text="Импорт параметров оператора";import.Left=370;import.Top=y;import.Width=180;Controls.Add(import);import.Click+=(s,e)=>ImportProvision();Button enroll=new Button(){Text="Создать ключ / скопировать PUBLIC",Left=18,Top=y,Width=340};Controls.Add(enroll);enroll.Click+=(s,e)=>{if(EnsureKey()){Clipboard.SetText(File.ReadAllText(Key+".pub"));Status("Публичный ключ создан и скопирован. Передай его оператору для регистрации.");}};y+=38;state.Left=18;state.Top=y;state.Width=545;state.Height=55;Controls.Add(state);
    save.Click+=(s,e)=>SaveSettings();start.Click+=(s,e)=>StartBridge();stop.Click+=(s,e)=>StopBridge();reload.Click+=(s,e)=>{StopBridge();LoadSettings();};
    tray.Icon=SystemIcons.Shield;tray.Text="Гермес Мост";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();
    ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());menu.Items.Add("Start",null,(s,e)=>StartBridge());menu.Items.Add("Stop",null,(s,e)=>StopBridge());menu.Items.Add("Reload",null,(s,e)=>{StopBridge();LoadSettings();});menu.Items.Add("Exit",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
@@ -61,6 +61,22 @@ namespace HermesBridge {
    if(!int.TryParse(port.Text,out p)||p<1||p>65535){Error("Некорректный SSH-порт");return false;}
    if(strict||slot.Text.Trim().Length>0)if(!int.TryParse(slot.Text,out r)||r<1024||r>65535){Error("Некорректный обратный порт");return false;}
    return true;
+  }
+  void ImportProvision(){
+   using(var dlg=new OpenFileDialog()){
+    dlg.Filter="Hermes Bridge registration (*.bridge)|*.bridge|All files (*.*)|*.*";
+    if(dlg.ShowDialog()!=DialogResult.OK)return;
+    var rows=File.ReadAllLines(dlg.FileName,Encoding.UTF8);
+    var values=new System.Collections.Generic.Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+    foreach(string row in rows){int i=row.IndexOf('=');if(i<1)continue;values[row.Substring(0,i).Trim()]=row.Substring(i+1).Trim();}
+    string h,p,r,k;
+    if(!values.TryGetValue("host",out h)||!values.TryGetValue("port",out p)||!values.TryGetValue("slot",out r)||!values.TryGetValue("hostkey",out k)){Error("Неполный файл регистрации");return;}
+    if(k.IndexOf('\n')>=0||k.IndexOf('\r')>=0 || !k.StartsWith("ssh-ed25519 ")){Error("Неверный SSH host key");return;}
+    host.Text=h;port.Text=p;slot.Text=r;
+    if(!Valid(true))return;
+    File.WriteAllText(Known,"["+h+"]:"+p+" "+k+Environment.NewLine,Encoding.ASCII);
+    SaveSettings();Status("Регистрация импортирована. Проверь достоверность источника файла.");
+   }
   }
   void Error(string message){MessageBox.Show(message,"Гермес Мост",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
   bool EnsureKey(){
