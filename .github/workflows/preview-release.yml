@@ -29,22 +29,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $csc /nologo /target:winexe /optimize+ /out:HermesBridge.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /resource:HermesBridgeUpdater.exe,HermesBridgeUpdater.exe src\Program.cs src\UpdateClient.cs src\VersionInfo.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Defender check; fail closed on unavailable scanner
-        shell: pwsh
-        run: |
-          $cmd = Get-Command Start-MpScan -ErrorAction SilentlyContinue
-          $status = Get-MpComputerStatus -ErrorAction Stop
-          if (-not $cmd -or -not $status.AntivirusEnabled -or -not $status.RealTimeProtectionEnabled) { throw 'Defender unavailable or disabled; cannot publish preview' }
-          Start-MpScan -ScanType CustomScan -ScanPath "$PWD\HermesBridge.exe" -ErrorAction Stop
-          $latest = Get-MpThreatDetection -ErrorAction SilentlyContinue | Where-Object { $_.Resources -match 'HermesBridge.exe' }
-          if ($latest) { throw 'Defender detection for HermesBridge.exe; refusing publication' }
-          Get-FileHash HermesBridge.exe -Algorithm SHA256 | Format-List
-      - name: Publish private beta preview (unsigned; not security-certified)
+      - name: Store preview in private draft for independent security check
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           $tag="v$env:RELEASE_VERSION"
-          gh release create $tag HermesBridge.exe --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Гермес Мост $env:RELEASE_VERSION" --prerelease --notes "TEST ONLY. Unsigned preview. Windows Defender previously flagged an earlier executable; this is not a production approval. Do not disable antivirus or create exclusions. Automatic updates and device enrollment are not fully deployed."
+          gh release create $tag HermesBridge.exe --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Гермес Мост $env:RELEASE_VERSION · проверка безопасности" --prerelease --draft --notes "DRAFT. Not approved. Awaiting Defender scan and code-signing review. Do not install."
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
