@@ -22,6 +22,14 @@ jobs:
           $sig=Get-AuthenticodeSignature HermesBridge.exe
           Write-Output "Authenticode status: $($sig.Status)"
           Write-Output 'Developer build only. Release publication disabled until code signing and Defender review are complete.'
+      - name: Cryptographic update regression tests
+        shell: pwsh
+        run: |
+          $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:exe /out:UpdateVerifyTests.exe /reference:System.Web.Extensions.dll src\UpdateClient.cs tests\UpdateVerifyTests.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\UpdateVerifyTests.exe tests\fixtures\signed-beta1.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Enrollment regression tests
         shell: pwsh
         run: python server/test_enroll.py
