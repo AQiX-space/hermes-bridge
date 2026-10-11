@@ -17,19 +17,19 @@ namespace HermesBridge {
   TextBox host=new TextBox(),port=new TextBox(),slot=new TextBox(),known=new TextBox(),device=new TextBox();
   NumericUpDown ttl=new NumericUpDown(); Label state=new Label(); Button start=new Button(),stop=new Button(),reload=new Button(),save=new Button(),import=new Button();
   NotifyIcon tray=new NotifyIcon(); System.Windows.Forms.Timer heartbeat=new System.Windows.Forms.Timer();
-  Process tunnel; DateTime deadline; bool running=false, quitting=false;
+  Process tunnel; DateTime deadline; bool running=false, quitting=false, updating=false;
   string Config {get{return Path.Combine(root,"client.ini");}}
   string Ssh {get{return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"OpenSSH","ssh.exe");}}
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
-  Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), updates=new Button();
+  Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), updates=new Button(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
   Color ink=Color.FromArgb(31,41,55), muted=Color.FromArgb(100,116,139), blue=Color.FromArgb(37,99,235), surface=Color.FromArgb(248,250,252);
   public BridgeForm(){
-   Text="Гермес Мост 0.2.0-beta.2"; Width=520;Height=535;MinimumSize=new Size(520,535);MaximumSize=new Size(520,820);StartPosition=FormStartPosition.CenterScreen;
+   Text="Гермес Мост 0.2.0-beta.3"; Width=520;Height=535;MinimumSize=new Size(520,535);MaximumSize=new Size(520,820);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
    Label heading=new Label(){Text="Гермес Мост",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=430,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="Версия 0.2.0-beta.2 · Безопасная техподдержка",ForeColor=muted,Left=28,Top=66,Width=435,Height=27};Controls.Add(subtitle);
+   subtitle=new Label(){Text="Версия 0.2.0-beta.3 · Безопасная техподдержка",ForeColor=muted,Left=28,Top=66,Width=435,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=22,Top=110,Width=455,Height=140,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=16;state.Width=417;state.Height=42;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=66;connectionInfo.Width=417;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
@@ -38,19 +38,7 @@ namespace HermesBridge {
    stop.Text="Отключить доступ";stop.Left=22;stop.Top=327;stop.Width=455;stop.Height=43;stop.FlatStyle=FlatStyle.Flat;stop.BackColor=Color.White;stop.ForeColor=ink;Controls.Add(stop);
    setup.Text="Настройки и регистрация  ▾";setup.Left=22;setup.Top=384;setup.Width=455;setup.Height=40;setup.FlatStyle=FlatStyle.Flat;setup.ForeColor=muted;Controls.Add(setup);
    updates.Text="Проверить обновления ↗";updates.Left=22;updates.Top=430;updates.Width=455;updates.Height=34;updates.FlatStyle=FlatStyle.Flat;updates.ForeColor=blue;Controls.Add(updates);
-   updates.Click+=async (s,e)=>{
-    if(running){MessageBox.Show("Сначала отключи активную сессию Моста.","Обновление");return;}
-    updates.Enabled=false;updates.Text="Проверяю подпись обновления…";
-    try{
-     var manifest=await UpdateClient.CheckAsync();
-     if(manifest==null){MessageBox.Show("Новых подписанных обновлений нет.","Гермес Мост");return;}
-     if(MessageBox.Show("Доступна версия "+manifest.version+". Скачать и установить после проверки подписи?","Обновление",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
-     string staged=await UpdateClient.StageAsync(manifest,Path.Combine(root,"updates"));
-     UpdateClient.Apply(manifest,staged);
-     quitting=true;Close();
-    }catch(Exception ex){MessageBox.Show("Проверка обновления не завершена: "+ex.Message,"Гермес Мост",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
-    finally {updates.Enabled=true;updates.Text="Проверить обновления";}
-   };
+   updates.Click+=async (s,e)=>await CheckAndInstallUpdateAsync(false);
    expiryInfo.Left=25;expiryInfo.Top=469;expiryInfo.Width=440;expiryInfo.Height=28;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
    advanced.Left=0;advanced.Top=505;advanced.Width=495;advanced.Height=280;advanced.Visible=false;Controls.Add(advanced);
    int y=5;AddLine("Устройство",device,ref y);AddLine("Сервер",host,ref y);AddLine("Порт сервера",port,ref y);AddLine("Порт сессии",slot,ref y);
@@ -68,13 +56,32 @@ namespace HermesBridge {
    setup.Click+=(s,e)=>{advanced.Visible=!advanced.Visible;setup.Text=advanced.Visible?"Скрыть настройки  ▴":"Настройки и регистрация  ▾";Height=advanced.Visible?820:535;};
    tray.Icon=SystemIcons.Shield;tray.Text="Гермес Мост";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();
    ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());menu.Items.Add("Подключить",null,(s,e)=>StartBridge());menu.Items.Add("Отключить",null,(s,e)=>StopBridge());menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
-   // Periodic check, never automatically install updates during an active support session.
-   System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
+   // Automatic updates only while remote support is disconnected. Signed manifest required.
    updateTimer.Interval=6*60*60*1000;
-   updateTimer.Tick+=async (s,e)=>{if(running)return;try{var m=await UpdateClient.CheckAsync();if(m!=null)updates.Text="Есть обновление "+m.version;}catch{}};
+   updateTimer.Tick+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
    updateTimer.Start();
+   Shown+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
    heartbeat.Interval=2000;heartbeat.Tick+=(s,e)=>Tick();heartbeat.Start();
    LoadSettings();FormClosing+=(s,e)=>{if(!quitting){e.Cancel=true;Hide();}else{StopBridge();tray.Visible=false;tray.Dispose();}};
+  }
+  async System.Threading.Tasks.Task CheckAndInstallUpdateAsync(bool automatic){
+   if(updating||quitting)return;
+   if(running){if(!automatic)MessageBox.Show("Сначала отключи активный сеанс поддержки.","Обновление");return;}
+   updating=true;updates.Enabled=false;updates.Text="Проверка подписанного обновления…";
+   try {
+    UpdateManifest manifest=await UpdateClient.CheckAsync();
+    if(manifest==null){if(!automatic)MessageBox.Show("Новых подписанных обновлений нет.","Гермес Мост");return;}
+    if(running||quitting)return;
+    if(!automatic && MessageBox.Show("Доступна версия "+manifest.version+". Установить?","Гермес Мост",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
+    updates.Text="Загрузка и проверка обновления…";
+    string staged=await UpdateClient.StageAsync(manifest,Path.Combine(root,"updates"));
+    if(running||quitting)return;
+    UpdateClient.Apply(manifest,staged);
+    quitting=true;Close();
+   }catch(Exception ex){
+    if(!automatic)MessageBox.Show("Обновление недоступно: "+ex.Message,"Гермес Мост",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+    else updates.Text="Автообновление недоступно";
+   }finally{updating=false;updates.Enabled=true;if(!quitting)updates.Text="Проверить обновления";}
   }
   void AddLine(string title,TextBox t,ref int y){advanced.Controls.Add(new Label(){Text=title,Left=26,Top=y+4,Width=240});t.Left=270;t.Top=y;t.Width=189;advanced.Controls.Add(t);y+=34;}
   void ShowMain(){Show();WindowState=FormWindowState.Normal;Activate();}

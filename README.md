@@ -36,3 +36,7 @@ Client now implements manual `Проверить обновления` plus back
 ## Versioning
 
 Version contract: `MAJOR.MINOR.PATCH` for stable builds and `MAJOR.MINOR.PATCH-beta.N` for prereleases. The current preview is `0.2.0-beta.1` (Windows assembly file version `0.2.0.0`). Private GitHub build commits and cryptographic SHA hashes must never be used as human-facing product version numbers. The signed update manifest uses Windows `System.Version` (`0.2.0.0`) until a prerelease comparator is added; the beta channel is separate from stable.
+
+## 0.2.0-beta.3 automatic update behavior
+
+With a disconnected support session, the client checks the signed beta manifest immediately on launch and then every six hours. If a newer correctly signed version is found, it downloads the pinned HTTPS binary, verifies SHA-256 and installs via an embedded helper with a rollback backup. An active support session is never interrupted; manual checking is also available. Invalid TLS, an unreachable mirror, or a bad signature must fail closed. This functionality requires a **live, correctly routed HTTPS update mirror**; the current external DNS/network mismatch means automatic delivery is not yet operational. No automatic release promotion or code-signing bypass is implemented.
