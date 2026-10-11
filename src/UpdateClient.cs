@@ -13,14 +13,16 @@ namespace HermesBridge {
  public static class UpdateClient {
   // Compiled-in RSA public key. Change only through a reviewed build; signer private key stays on DE2.
   public const string RsaPublicXml="<RSAKeyValue><Modulus>5FDNieHlD4GdzAKUYDAQ9+aP50S0RcA3GbPsUIN9+wRa9PvYNZTXt6j6HZAy6IZuysuoPDGZ4qzcaJfEMQTZM1maFyEd5SSbm/z1f/xsGfuOr5GHk2wJtr2Hrrw/jq5zbDXKWsAc+Xr+RopRQomud9OgEKRSvvJgLXRFFudqPszfGfnVyWUOsBOK31pIxDq9ivPSolxcTU6OUC+PVIDRsM2HBi3YFH7XnvtR/zFXSs1LZLYjbFc/lYJp++1RIyUO21GfvxGpaL/z91UmNWeDphxS44mO2Ra48HRRCfTB0Qs7TM5Ul7Zu1a0JpvDq9L91MiOo2xEigJ2yHF+FFO8oVdRHope2s2LwZqjQ0UtA73yJDbpJYcxxjxOeBCLxRyNYMmQxKr1Rh6MvGpQP1O1DNEV2IKDaR4FoLWPpkhxp0DsY1TSeR9iXyOUdenJSDWE0M7ou8/m33NnvbEgQ3P2X7pPW13aVBhizcRjS4mRem7clgVsvBCRf9qD6hPTAPsHr</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
-  public const string ManifestUrl="https://updates.aqix.ru/hermes-bridge/beta.json";
+  public const string ManifestUrl="https://sub.aqix.ru:3443/downloads/hermes-bridge/beta.json";
   public static string CurrentVersion {get{return Assembly.GetExecutingAssembly().GetName().Version.ToString();}}
   public static bool Verify(UpdateManifest m) {
    if(m==null||m.version==null||m.url==null||m.sha256==null||m.signature==null)return false;
    Version v;Uri u;
    if(!Version.TryParse(m.version,out v)||!Uri.TryCreate(m.url,UriKind.Absolute,out u)||u.Scheme!="https")return false;
    if(!Regex.IsMatch(m.sha256,"^[a-f0-9]{64}$"))return false;
-   if(u.Host!="updates.aqix.ru")return false;
+   if(!String.Equals(u.Host,"sub.aqix.ru",StringComparison.OrdinalIgnoreCase)||u.Port!=3443||
+      !u.AbsolutePath.StartsWith("/downloads/hermes-bridge/releases/",StringComparison.Ordinal)||
+      !u.AbsolutePath.EndsWith("/HermesBridge.exe",StringComparison.Ordinal))return false;
    try{
     byte[] data=Encoding.UTF8.GetBytes(m.version+"\n"+m.url+"\n"+m.sha256);
     using(RSACryptoServiceProvider rsa=new RSACryptoServiceProvider()){
@@ -50,7 +52,17 @@ namespace HermesBridge {
     Directory.CreateDirectory(dir);
     string path=Path.Combine(dir,"HermesBridge.new.exe");
     ServicePointManager.SecurityProtocol|=SecurityProtocolType.Tls12;
-    using(var wc=new WebClient())wc.DownloadFile(m.url,path);
+    try {
+     var request=(HttpWebRequest)WebRequest.Create(m.url);
+     request.AllowAutoRedirect=false;request.Timeout=20000;request.ReadWriteTimeout=20000;
+     using(var response=(HttpWebResponse)request.GetResponse()) {
+      if(response.StatusCode!=HttpStatusCode.OK||response.ContentLength>100*1024*1024)throw new InvalidDataException("Invalid binary response");
+      using(var input=response.GetResponseStream())using(var output=new FileStream(path,FileMode.Create,FileAccess.Write,FileShare.None)){
+       byte[] buf=new byte[32768];long received=0;int n;
+       while((n=input.Read(buf,0,buf.Length))>0){received+=n;if(received>100*1024*1024)throw new InvalidDataException("Binary too large");output.Write(buf,0,n);}
+      }
+     }
+    }catch{try{File.Delete(path);}catch{}throw;}
     FileInfo fi=new FileInfo(path);if(fi.Length>100*1024*1024||fi.Length<1024)throw new InvalidDataException("Unexpected binary size");
     using(var sha=SHA256.Create())using(var f=File.OpenRead(path)){
      string hash=BitConverter.ToString(sha.ComputeHash(f)).Replace("-","").ToLowerInvariant();
