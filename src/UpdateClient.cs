@@ -13,7 +13,7 @@ namespace HermesBridge {
  public static class UpdateClient {
   // Compiled-in RSA public key. Change only through a reviewed build; signer private key stays on DE2.
   public const string RsaPublicXml="<RSAKeyValue><Modulus>5FDNieHlD4GdzAKUYDAQ9+aP50S0RcA3GbPsUIN9+wRa9PvYNZTXt6j6HZAy6IZuysuoPDGZ4qzcaJfEMQTZM1maFyEd5SSbm/z1f/xsGfuOr5GHk2wJtr2Hrrw/jq5zbDXKWsAc+Xr+RopRQomud9OgEKRSvvJgLXRFFudqPszfGfnVyWUOsBOK31pIxDq9ivPSolxcTU6OUC+PVIDRsM2HBi3YFH7XnvtR/zFXSs1LZLYjbFc/lYJp++1RIyUO21GfvxGpaL/z91UmNWeDphxS44mO2Ra48HRRCfTB0Qs7TM5Ul7Zu1a0JpvDq9L91MiOo2xEigJ2yHF+FFO8oVdRHope2s2LwZqjQ0UtA73yJDbpJYcxxjxOeBCLxRyNYMmQxKr1Rh6MvGpQP1O1DNEV2IKDaR4FoLWPpkhxp0DsY1TSeR9iXyOUdenJSDWE0M7ou8/m33NnvbEgQ3P2X7pPW13aVBhizcRjS4mRem7clgVsvBCRf9qD6hPTAPsHr</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>";
-  public const string ManifestUrl="https://updates.aqix.ru/hermes-bridge/stable.json";
+  public const string ManifestUrl="https://updates.aqix.ru/hermes-bridge/beta.json";
   public static string CurrentVersion {get{return Assembly.GetExecutingAssembly().GetName().Version.ToString();}}
   public static bool Verify(UpdateManifest m) {
    if(m==null||m.version==null||m.url==null||m.sha256==null||m.signature==null)return false;
