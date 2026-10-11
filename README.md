@@ -20,3 +20,9 @@ The GitHub Actions workflow compiles `src/Program.cs` on a Windows runner and up
 ## Updates UI (interim)
 
 The **Проверить обновления** control currently opens the repository's private GitHub release page in the system browser; it prominently states that automatic updates are *not enabled*. It is **not** a silent updater. Future auto-updates require authenticated server-side artifact distribution, verified signatures, and a rollback-capable installer; direct access tokens are never bundled with the EXE.
+
+## Safety gate — 2026-10-11
+
+Automatic publication of unsigned binaries is **disabled** after Microsoft Defender flagged an earlier developer executable as `Trojan:Win32/Wacatac.B!ml` on an AQiX host. A clean CI build is not an antivirus clearance. Do not disable Defender or whitelist this binary. Subsequent CI runs validate source compilation and enrollment tests only. Shipping resumes after security review, signed builds and independent validation on Windows. Earlier preview releases are archived testing artifacts, **not production-approved**.
+
+The UI only reports that an `ssh.exe` client process exists; this does **not** verify that an operator can reach the device. A server-side session status API and verified end-to-end test remain required.

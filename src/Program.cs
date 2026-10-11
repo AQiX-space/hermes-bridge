@@ -65,7 +65,7 @@ namespace HermesBridge {
    if(state==null)return;
    bool processAlive=false;
    try{processAlive=tunnel!=null&&!tunnel.HasExited;}catch{}
-   state.Text=processAlive?"Соединение запущено":running?"Подключение…":"Доступ отключён";
+   state.Text=processAlive?"SSH-клиент работает":running?"Переподключение…":"Доступ отключён";
    state.ForeColor=processAlive?Color.FromArgb(22,101,52):running?blue:ink;
    connectionInfo.Text=value;
    deviceInfo.Text="Компьютер: "+(device.Text.Trim().Length>0?device.Text.Trim():Environment.MachineName);
@@ -126,15 +126,16 @@ namespace HermesBridge {
    if(!File.Exists(Known)){Error("Нет проверенного known_hosts. Его выдаёт оператор после регистрации устройства.");return;}
    if(!EnsureKey())return;
    SaveSettings();
-   deadline=DateTime.UtcNow.AddMinutes((double)ttl.Value);running=true;Launch();
+   deadline=DateTime.UtcNow.AddMinutes((double)ttl.Value);running=true;retryAt=DateTime.UtcNow.AddSeconds(10);Launch();
   }
   void Launch(){
    if(!running||DateTime.UtcNow>=deadline)return;
    int serverPort=int.Parse(port.Text),remote=int.Parse(slot.Text);
    string args="-N -T -p "+serverPort+" -R 127.0.0.1:"+remote+":127.0.0.1:22 -i \""+Key+"\" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\""+Known+"\" -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 hermes-bridge@"+host.Text.Trim();
    try{
+    if(tunnel!=null){try{tunnel.Dispose();}catch{}tunnel=null;}
     ProcessStartInfo p=new ProcessStartInfo(Ssh,args);p.UseShellExecute=false;p.CreateNoWindow=true;
-    tunnel=Process.Start(p);Status("SSH-процесс запущен; доступ проверяется на шлюзе.");
+    tunnel=Process.Start(p);Status("Соединение запущено. Проверка доступности шлюза выполняется отдельно.");
    }catch(Exception ex){Status("Ошибка подключения: "+ex.Message);}
   }
   DateTime retryAt=DateTime.MinValue;
@@ -143,7 +144,7 @@ namespace HermesBridge {
    if(DateTime.UtcNow>=deadline){StopBridge();Status("Время сессии истекло; доступ закрыт.");return;}
    if(tunnel!=null&&!tunnel.HasExited)return;
    if(DateTime.UtcNow<retryAt)return;
-   retryAt=DateTime.UtcNow.AddSeconds(10);Status("Нет связи. Повтор через 10 секунд.");Launch();
+   retryAt=DateTime.UtcNow.AddSeconds(10);Launch();
   }
   void StopBridge(){
    running=false;
