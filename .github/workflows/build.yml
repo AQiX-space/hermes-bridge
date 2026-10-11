@@ -53,6 +53,7 @@ jobs:
           if ([IO.File]::ReadAllText($dst) -cne 'old-good-version') { throw 'rollback failed' }
           Write-Output 'PASS: failed launch restores previous version'
           Remove-Item -Recurse -Force $root
+          exit 0 # expected rollback helper exit=10 must not become job exit
       - name: Enrollment regression tests
         shell: pwsh
         run: python server/test_enroll.py
