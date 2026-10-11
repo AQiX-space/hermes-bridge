@@ -38,7 +38,19 @@ namespace HermesBridge {
    stop.Text="Отключить доступ";stop.Left=22;stop.Top=327;stop.Width=455;stop.Height=43;stop.FlatStyle=FlatStyle.Flat;stop.BackColor=Color.White;stop.ForeColor=ink;Controls.Add(stop);
    setup.Text="Настройки и регистрация  ▾";setup.Left=22;setup.Top=384;setup.Width=455;setup.Height=40;setup.FlatStyle=FlatStyle.Flat;setup.ForeColor=muted;Controls.Add(setup);
    updates.Text="Проверить обновления ↗";updates.Left=22;updates.Top=430;updates.Width=455;updates.Height=34;updates.FlatStyle=FlatStyle.Flat;updates.ForeColor=blue;Controls.Add(updates);
-   updates.Click+=(s,e)=>{MessageBox.Show("Автоматическое обновление ещё не включено. Откроется приватная страница релизов GitHub, доступная только с авторизованной учётной записью. Неподписанные EXE автоматически не устанавливаются.","Гермес Мост · Обновления",MessageBoxButtons.OK,MessageBoxIcon.Information);Process.Start(new ProcessStartInfo("https://github.com/AQiX-space/hermes-bridge/releases"){UseShellExecute=true});};
+   updates.Click+=async (s,e)=>{
+    if(running){MessageBox.Show("Сначала отключи активную сессию Моста.","Обновление");return;}
+    updates.Enabled=false;updates.Text="Проверяю подпись обновления…";
+    try{
+     var manifest=await UpdateClient.CheckAsync();
+     if(manifest==null){MessageBox.Show("Новых подписанных обновлений нет.","Гермес Мост");return;}
+     if(MessageBox.Show("Доступна версия "+manifest.version+". Скачать и установить после проверки подписи?","Обновление",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
+     string staged=await UpdateClient.StageAsync(manifest,Path.Combine(root,"updates"));
+     UpdateClient.Apply(manifest,staged);
+     quitting=true;Close();
+    }catch(Exception ex){MessageBox.Show("Проверка обновления не завершена: "+ex.Message,"Гермес Мост",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+    finally {updates.Enabled=true;updates.Text="Проверить обновления";}
+   };
    expiryInfo.Left=25;expiryInfo.Top=469;expiryInfo.Width=440;expiryInfo.Height=28;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
    advanced.Left=0;advanced.Top=505;advanced.Width=495;advanced.Height=280;advanced.Visible=false;Controls.Add(advanced);
    int y=5;AddLine("Устройство",device,ref y);AddLine("Сервер",host,ref y);AddLine("Порт сервера",port,ref y);AddLine("Порт сессии",slot,ref y);
@@ -56,6 +68,11 @@ namespace HermesBridge {
    setup.Click+=(s,e)=>{advanced.Visible=!advanced.Visible;setup.Text=advanced.Visible?"Скрыть настройки  ▴":"Настройки и регистрация  ▾";Height=advanced.Visible?820:535;};
    tray.Icon=SystemIcons.Shield;tray.Text="Гермес Мост";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();
    ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());menu.Items.Add("Подключить",null,(s,e)=>StartBridge());menu.Items.Add("Отключить",null,(s,e)=>StopBridge());menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
+   // Periodic check, never automatically install updates during an active support session.
+   System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
+   updateTimer.Interval=6*60*60*1000;
+   updateTimer.Tick+=async (s,e)=>{if(running)return;try{var m=await UpdateClient.CheckAsync();if(m!=null)updates.Text="Есть обновление "+m.version;}catch{}};
+   updateTimer.Start();
    heartbeat.Interval=2000;heartbeat.Tick+=(s,e)=>Tick();heartbeat.Start();
    LoadSettings();FormClosing+=(s,e)=>{if(!quitting){e.Cancel=true;Hide();}else{StopBridge();tray.Visible=false;tray.Dispose();}};
   }

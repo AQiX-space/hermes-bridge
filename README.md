@@ -26,3 +26,9 @@ The **Проверить обновления** control currently opens the repo
 Automatic publication of unsigned binaries is **disabled** after Microsoft Defender flagged an earlier developer executable as `Trojan:Win32/Wacatac.B!ml` on an AQiX host. A clean CI build is not an antivirus clearance. Do not disable Defender or whitelist this binary. Subsequent CI runs validate source compilation and enrollment tests only. Shipping resumes after security review, signed builds and independent validation on Windows. Earlier preview releases are archived testing artifacts, **not production-approved**.
 
 The UI only reports that an `ssh.exe` client process exists; this does **not** verify that an operator can reach the device. A server-side session status API and verified end-to-end test remain required.
+
+## Signed automatic update client implementation
+
+Client now implements manual `Проверить обновления` plus background update availability checks every six hours. HTTPS manifest: `https://updates.aqix.ru/hermes-bridge/stable.json`. The signed fields are `version`, `url`, `sha256`, verified using the RSA-3072 public key built into `UpdateClient.cs`. Staged bytes are SHA-256 checked. A separate updater process embedded as a resource swaps the file after the main app exits, saves `.previous`, and restores it on failure. Sessions are not interrupted without explicit confirmation; updates require Bridge to be stopped. Neither GitHub credentials nor the release private signing key are bundled.
+
+**Not yet live:** the update HTTPS hostname still routes to another server and DE2's current HTTPS certificate is self-signed. The endpoint must first be configured with a trusted certificate and tested end to end. Moreover, Defender flagged prior unsigned builds; the release pipeline remains in build-only mode until malware review, Authenticode signing, and acceptance testing. No release is promoted automatically.

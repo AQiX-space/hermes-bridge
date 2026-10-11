@@ -14,7 +14,9 @@ jobs:
         shell: pwsh
         run: |
           $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-          & $csc /nologo /target:winexe /optimize+ /out:HermesBridge.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll src\Program.cs
+          & $csc /nologo /target:exe /optimize+ /out:HermesBridgeUpdater.exe updater\Program.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $csc /nologo /target:winexe /optimize+ /out:HermesBridge.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /resource:HermesBridgeUpdater.exe,HermesBridgeUpdater.exe src\Program.cs src\UpdateClient.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-FileHash HermesBridge.exe -Algorithm SHA256 | Format-List
           $sig=Get-AuthenticodeSignature HermesBridge.exe
