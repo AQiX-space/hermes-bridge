@@ -16,3 +16,7 @@ The GitHub Actions workflow compiles `src/Program.cs` on a Windows runner and up
 ## Offline registration packet (developer preview)
 
 `python3 server/enroll.py --device pc1 --host bridge.example.com --port 22471 --slot 22473 --public-key-file pc1.pub --gateway-host-key-file gateway.pub --output-dir ./out` generates `pc1.bridge` and prints the server-side `authorized_keys` entry. The operator must manually approve device ownership and install the entry; the tool deliberately does **not** modify a server, open a port, or authenticate a device automatically. On Windows use **Импорт параметров оператора** to apply that `.bridge` file and pin the SSH server host key. Obtain the bundle through a trusted channel: the format is not cryptographically signed. No unattended enrollment or updater yet.
+
+## Updates UI (interim)
+
+The **Проверить обновления** control currently opens the repository's private GitHub release page in the system browser; it prominently states that automatic updates are *not enabled*. It is **not** a silent updater. Future auto-updates require authenticated server-side artifact distribution, verified signatures, and a rollback-capable installer; direct access tokens are never bundled with the EXE.

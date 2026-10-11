@@ -22,10 +22,10 @@ namespace HermesBridge {
   string Ssh {get{return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"OpenSSH","ssh.exe");}}
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
-  Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button();
+  Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), updates=new Button();
   Color ink=Color.FromArgb(31,41,55), muted=Color.FromArgb(100,116,139), blue=Color.FromArgb(37,99,235), surface=Color.FromArgb(248,250,252);
   public BridgeForm(){
-   Text="Гермес Мост"; Width=520;Height=505;MinimumSize=new Size(520,505);MaximumSize=new Size(520,790);StartPosition=FormStartPosition.CenterScreen;
+   Text="Гермес Мост"; Width=520;Height=535;MinimumSize=new Size(520,535);MaximumSize=new Size(520,820);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
    Label heading=new Label(){Text="Гермес Мост",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=430,Height=42};Controls.Add(heading);
@@ -37,8 +37,10 @@ namespace HermesBridge {
    start.Text="Подключить Гермеса";start.Left=22;start.Top=266;start.Width=455;start.Height=49;start.FlatStyle=FlatStyle.Flat;start.FlatAppearance.BorderSize=0;start.BackColor=blue;start.ForeColor=Color.White;start.Font=new Font("Segoe UI Semibold",12,FontStyle.Bold);Controls.Add(start);
    stop.Text="Отключить доступ";stop.Left=22;stop.Top=327;stop.Width=455;stop.Height=43;stop.FlatStyle=FlatStyle.Flat;stop.BackColor=Color.White;stop.ForeColor=ink;Controls.Add(stop);
    setup.Text="Настройки и регистрация  ▾";setup.Left=22;setup.Top=384;setup.Width=455;setup.Height=40;setup.FlatStyle=FlatStyle.Flat;setup.ForeColor=muted;Controls.Add(setup);
-   expiryInfo.Left=25;expiryInfo.Top=438;expiryInfo.Width=440;expiryInfo.Height=28;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
-   advanced.Left=0;advanced.Top=475;advanced.Width=495;advanced.Height=280;advanced.Visible=false;Controls.Add(advanced);
+   updates.Text="Проверить обновления ↗";updates.Left=22;updates.Top=430;updates.Width=455;updates.Height=34;updates.FlatStyle=FlatStyle.Flat;updates.ForeColor=blue;Controls.Add(updates);
+   updates.Click+=(s,e)=>{MessageBox.Show("Автоматическое обновление ещё не включено. Откроется приватная страница релизов GitHub, доступная только с авторизованной учётной записью. Неподписанные EXE автоматически не устанавливаются.","Гермес Мост · Обновления",MessageBoxButtons.OK,MessageBoxIcon.Information);Process.Start(new ProcessStartInfo("https://github.com/AQiX-space/hermes-bridge/releases"){UseShellExecute=true});};
+   expiryInfo.Left=25;expiryInfo.Top=469;expiryInfo.Width=440;expiryInfo.Height=28;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
+   advanced.Left=0;advanced.Top=505;advanced.Width=495;advanced.Height=280;advanced.Visible=false;Controls.Add(advanced);
    int y=5;AddLine("Устройство",device,ref y);AddLine("Сервер",host,ref y);AddLine("Порт сервера",port,ref y);AddLine("Порт сессии",slot,ref y);
    ttl.Minimum=5;ttl.Maximum=240;ttl.Value=60;ttl.Left=270;ttl.Top=y;ttl.Width=90;
    advanced.Controls.Add(new Label(){Text="Сессия, минут",Left=26,Top=y+4,Width=240});advanced.Controls.Add(ttl);y+=35;
@@ -51,7 +53,7 @@ namespace HermesBridge {
    keyCopy.Click+=(s,e)=>{if(EnsureKey()){Clipboard.SetText(File.ReadAllText(Key+".pub"));Status("Ключ скопирован. Нужна регистрация на шлюзе.");}};
    import.Click+=(s,e)=>ImportProvision();save.Click+=(s,e)=>SaveSettings();reload.Click+=(s,e)=>{StopBridge();LoadSettings();};
    start.Click+=(s,e)=>StartBridge();stop.Click+=(s,e)=>StopBridge();
-   setup.Click+=(s,e)=>{advanced.Visible=!advanced.Visible;setup.Text=advanced.Visible?"Скрыть настройки  ▴":"Настройки и регистрация  ▾";Height=advanced.Visible?790:505;};
+   setup.Click+=(s,e)=>{advanced.Visible=!advanced.Visible;setup.Text=advanced.Visible?"Скрыть настройки  ▴":"Настройки и регистрация  ▾";Height=advanced.Visible?820:535;};
    tray.Icon=SystemIcons.Shield;tray.Text="Гермес Мост";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();
    ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());menu.Items.Add("Подключить",null,(s,e)=>StartBridge());menu.Items.Add("Отключить",null,(s,e)=>StopBridge());menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
    heartbeat.Interval=2000;heartbeat.Tick+=(s,e)=>Tick();heartbeat.Start();
