@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: windows-2022
@@ -16,8 +16,11 @@ jobs:
           $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           & $csc /nologo /target:winexe /optimize+ /out:HermesBridge.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll src\Program.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: HermesBridge-Windows
-          path: HermesBridge.exe
-          if-no-files-found: error
+      - name: Publish private preview release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag="v0.1.0-dev-$($env:GITHUB_SHA.Substring(0,7))"
+          gh release create $tag HermesBridge.exe --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Hermes Bridge developer preview $tag" --prerelease --notes "Developer preview for controlled testing; do not distribute to clients."
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
