@@ -25,11 +25,11 @@ namespace HermesBridge {
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), updates=new Button(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
   Color ink=Color.FromArgb(31,41,55), muted=Color.FromArgb(100,116,139), blue=Color.FromArgb(37,99,235), surface=Color.FromArgb(248,250,252);
   public BridgeForm(){
-   Text="Гермес Мост 0.2.0-beta.3"; Width=520;Height=535;MinimumSize=new Size(520,535);MaximumSize=new Size(520,820);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.2.0-beta.3"; Width=520;Height=535;MinimumSize=new Size(520,535);MaximumSize=new Size(520,820);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
-   Label heading=new Label(){Text="Гермес Мост",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=430,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="Версия 0.2.0-beta.3 · Безопасная техподдержка",ForeColor=muted,Left=28,Top=66,Width=435,Height=27};Controls.Add(subtitle);
+   Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=430,Height=42};Controls.Add(heading);
+   subtitle=new Label(){Text="Версия 0.2.0-beta.3 · Доступ только с разрешения",ForeColor=muted,Left=28,Top=66,Width=435,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=22,Top=110,Width=455,Height=140,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=16;state.Width=417;state.Height=42;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=66;connectionInfo.Width=417;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
@@ -54,7 +54,7 @@ namespace HermesBridge {
    import.Click+=(s,e)=>ImportProvision();save.Click+=(s,e)=>SaveSettings();reload.Click+=(s,e)=>{StopBridge();LoadSettings();};
    start.Click+=(s,e)=>StartBridge();stop.Click+=(s,e)=>StopBridge();
    setup.Click+=(s,e)=>{advanced.Visible=!advanced.Visible;setup.Text=advanced.Visible?"Скрыть настройки  ▴":"Настройки и регистрация  ▾";Height=advanced.Visible?820:535;};
-   tray.Icon=SystemIcons.Shield;tray.Text="Гермес Мост";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();
+   tray.Icon=SystemIcons.Shield;tray.Text="Hermes Connector";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();
    ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());menu.Items.Add("Подключить",null,(s,e)=>StartBridge());menu.Items.Add("Отключить",null,(s,e)=>StopBridge());menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
    // Automatic updates only while remote support is disconnected. Signed manifest required.
    updateTimer.Interval=6*60*60*1000;
@@ -103,7 +103,7 @@ namespace HermesBridge {
     if(name=="device")device.Text=value;if(name=="host")host.Text=value;if(name=="port")port.Text=value;if(name=="slot")slot.Text=value;
     int n;if(name=="ttl"&&int.TryParse(value,out n))ttl.Value=Math.Max(5,Math.Min(240,n));
    }}
-   Status("Для первого подключения нужна регистрация устройства.");
+   Status("Для подключения потребуется одобрение и регистрация устройства.");
   }
   void SaveSettings(){
    if(!Valid(false))return;
@@ -145,7 +145,15 @@ namespace HermesBridge {
    return File.Exists(Key)&&File.Exists(Key+".pub");
   }
   void StartBridge(){
-   if(running)return;if(!Valid(true))return;
+   if(running)return;
+   if(String.IsNullOrWhiteSpace(host.Text)||String.IsNullOrWhiteSpace(slot.Text)||!File.Exists(Known)){
+    if(EnsureKey()){
+     MessageBox.Show("Этот компьютер ещё не зарегистрирован в Hermes Gate.\n\nКлюч устройства создан локально. Нажми «Скопировать ключ» в разделе регистрации и передай только публичный ключ оператору. До подтверждения сервером удалённый доступ не открывается.","Регистрация Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Information);
+     if(!advanced.Visible)setup.PerformClick();
+    }
+    return;
+   }
+   if(!Valid(true))return;
    if(!File.Exists(Ssh)){Error("OpenSSH Client отсутствует. Установи компонент Windows OpenSSH Client.");return;}
    if(!File.Exists(Known)){Error("Нет проверенного known_hosts. Его выдаёт оператор после регистрации устройства.");return;}
    if(!EnsureKey())return;
