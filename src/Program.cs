@@ -22,23 +22,54 @@ namespace HermesBridge {
   string Ssh {get{return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"OpenSSH","ssh.exe");}}
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
+  Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button();
+  Color ink=Color.FromArgb(31,41,55), muted=Color.FromArgb(100,116,139), blue=Color.FromArgb(37,99,235), surface=Color.FromArgb(248,250,252);
   public BridgeForm(){
-   Text="Гермес Мост · Windows"; Width=590;Height=480;StartPosition=FormStartPosition.CenterScreen;FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;
+   Text="Гермес Мост"; Width=520;Height=505;MinimumSize=new Size(520,505);MaximumSize=new Size(520,790);StartPosition=FormStartPosition.CenterScreen;
+   Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
-   int y=15;AddLine("Устройство",device,ref y);AddLine("Домен шлюза",host,ref y);AddLine("SSH-порт шлюза",port,ref y);AddLine("Обратный порт (выдаёт сервер)",slot,ref y);AddLine("Отпечаток host key / known_hosts",known,ref y);
-   Label time=new Label(){Text="Сессия, минут",Left=16,Top=y+5,Width=240};Controls.Add(time);ttl.Left=264;ttl.Top=y;ttl.Width=85;ttl.Minimum=5;ttl.Maximum=240;ttl.Value=60;y+=38;
-   save.Text="Save";start.Text="Start";stop.Text="Stop";reload.Text="Reload";
-   Button[] buttons={save,start,stop,reload};for(int i=0;i<buttons.Length;i++){buttons[i].Left=18+i*135;buttons[i].Top=y;buttons[i].Width=120;Controls.Add(buttons[i]);}
-   y+=45;import.Text="Импорт параметров оператора";import.Left=370;import.Top=y;import.Width=180;Controls.Add(import);import.Click+=(s,e)=>ImportProvision();Button enroll=new Button(){Text="Создать ключ / скопировать PUBLIC",Left=18,Top=y,Width=340};Controls.Add(enroll);enroll.Click+=(s,e)=>{if(EnsureKey()){Clipboard.SetText(File.ReadAllText(Key+".pub"));Status("Публичный ключ создан и скопирован. Передай его оператору для регистрации.");}};y+=38;state.Left=18;state.Top=y;state.Width=545;state.Height=55;Controls.Add(state);
-   save.Click+=(s,e)=>SaveSettings();start.Click+=(s,e)=>StartBridge();stop.Click+=(s,e)=>StopBridge();reload.Click+=(s,e)=>{StopBridge();LoadSettings();};
+   Label heading=new Label(){Text="Гермес Мост",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=430,Height=42};Controls.Add(heading);
+   subtitle=new Label(){Text="Безопасная техническая поддержка",ForeColor=muted,Left=28,Top=66,Width=435,Height=27};Controls.Add(subtitle);
+   Panel card=new Panel(){Left=22,Top=110,Width=455,Height=140,BackColor=surface};Controls.Add(card);
+   state.Left=17;state.Top=16;state.Width=417;state.Height=42;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
+   connectionInfo.Left=18;connectionInfo.Top=66;connectionInfo.Width=417;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
+   deviceInfo.Left=18;deviceInfo.Top=101;deviceInfo.Width=420;deviceInfo.Height=28;deviceInfo.ForeColor=muted;card.Controls.Add(deviceInfo);
+   start.Text="Подключить Гермеса";start.Left=22;start.Top=266;start.Width=455;start.Height=49;start.FlatStyle=FlatStyle.Flat;start.FlatAppearance.BorderSize=0;start.BackColor=blue;start.ForeColor=Color.White;start.Font=new Font("Segoe UI Semibold",12,FontStyle.Bold);Controls.Add(start);
+   stop.Text="Отключить доступ";stop.Left=22;stop.Top=327;stop.Width=455;stop.Height=43;stop.FlatStyle=FlatStyle.Flat;stop.BackColor=Color.White;stop.ForeColor=ink;Controls.Add(stop);
+   setup.Text="Настройки и регистрация  ▾";setup.Left=22;setup.Top=384;setup.Width=455;setup.Height=40;setup.FlatStyle=FlatStyle.Flat;setup.ForeColor=muted;Controls.Add(setup);
+   expiryInfo.Left=25;expiryInfo.Top=438;expiryInfo.Width=440;expiryInfo.Height=28;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
+   advanced.Left=0;advanced.Top=475;advanced.Width=495;advanced.Height=280;advanced.Visible=false;Controls.Add(advanced);
+   int y=5;AddLine("Устройство",device,ref y);AddLine("Сервер",host,ref y);AddLine("Порт сервера",port,ref y);AddLine("Порт сессии",slot,ref y);
+   ttl.Minimum=5;ttl.Maximum=240;ttl.Value=60;ttl.Left=270;ttl.Top=y;ttl.Width=90;
+   advanced.Controls.Add(new Label(){Text="Сессия, минут",Left=26,Top=y+4,Width=240});advanced.Controls.Add(ttl);y+=35;
+   known.Visible=false;
+   keyCopy=new Button(){Text="Скопировать ключ",Left=25,Top=y,Width=208,Height=32};advanced.Controls.Add(keyCopy);
+   import.Text="Импорт регистрации";import.Left=249;import.Top=y;import.Width=208;import.Height=32;advanced.Controls.Add(import);
+   save.Text="Сохранить";save.Left=25;save.Top=y+39;save.Width=208;save.Height=32;advanced.Controls.Add(save);
+   reload.Text="Перечитать";reload.Left=249;reload.Top=y+39;reload.Width=208;reload.Height=32;advanced.Controls.Add(reload);
+   advanced.Height=y+77;
+   keyCopy.Click+=(s,e)=>{if(EnsureKey()){Clipboard.SetText(File.ReadAllText(Key+".pub"));Status("Ключ скопирован. Нужна регистрация на шлюзе.");}};
+   import.Click+=(s,e)=>ImportProvision();save.Click+=(s,e)=>SaveSettings();reload.Click+=(s,e)=>{StopBridge();LoadSettings();};
+   start.Click+=(s,e)=>StartBridge();stop.Click+=(s,e)=>StopBridge();
+   setup.Click+=(s,e)=>{advanced.Visible=!advanced.Visible;setup.Text=advanced.Visible?"Скрыть настройки  ▴":"Настройки и регистрация  ▾";Height=advanced.Visible?790:505;};
    tray.Icon=SystemIcons.Shield;tray.Text="Гермес Мост";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();
-   ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());menu.Items.Add("Start",null,(s,e)=>StartBridge());menu.Items.Add("Stop",null,(s,e)=>StopBridge());menu.Items.Add("Reload",null,(s,e)=>{StopBridge();LoadSettings();});menu.Items.Add("Exit",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
+   ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());menu.Items.Add("Подключить",null,(s,e)=>StartBridge());menu.Items.Add("Отключить",null,(s,e)=>StopBridge());menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
    heartbeat.Interval=2000;heartbeat.Tick+=(s,e)=>Tick();heartbeat.Start();
    LoadSettings();FormClosing+=(s,e)=>{if(!quitting){e.Cancel=true;Hide();}else{StopBridge();tray.Visible=false;tray.Dispose();}};
   }
-  void AddLine(string title,TextBox t,ref int y){Controls.Add(new Label(){Text=title,Left=16,Top=y+5,Width=243});t.Left=264;t.Top=y;t.Width=285;Controls.Add(t);y+=37;}
+  void AddLine(string title,TextBox t,ref int y){advanced.Controls.Add(new Label(){Text=title,Left=26,Top=y+4,Width=240});t.Left=270;t.Top=y;t.Width=189;advanced.Controls.Add(t);y+=34;}
   void ShowMain(){Show();WindowState=FormWindowState.Normal;Activate();}
-  void Status(string value){state.Text=value;state.ForeColor=running?Color.DarkGreen:Color.DarkSlateGray;}
+  void Status(string value){
+   if(state==null)return;
+   bool processAlive=false;
+   try{processAlive=tunnel!=null&&!tunnel.HasExited;}catch{}
+   state.Text=processAlive?"Соединение запущено":running?"Подключение…":"Доступ отключён";
+   state.ForeColor=processAlive?Color.FromArgb(22,101,52):running?blue:ink;
+   connectionInfo.Text=value;
+   deviceInfo.Text="Компьютер: "+(device.Text.Trim().Length>0?device.Text.Trim():Environment.MachineName);
+   expiryInfo.Text=running?"Автоматическое отключение: "+deadline.ToLocalTime().ToString("HH:mm"):"Закрытие окна оставит программу в трее";
+   start.Enabled=!running;stop.Enabled=running;
+  }
   void LoadSettings(){
    device.Text=Environment.MachineName;host.Text="";port.Text="22471";slot.Text="";known.Text=Known;ttl.Value=60;
    if(File.Exists(Config)){foreach(string line in File.ReadAllLines(Config,Encoding.UTF8)){
@@ -46,7 +77,7 @@ namespace HermesBridge {
     if(name=="device")device.Text=value;if(name=="host")host.Text=value;if(name=="port")port.Text=value;if(name=="slot")slot.Text=value;
     int n;if(name=="ttl"&&int.TryParse(value,out n))ttl.Value=Math.Max(5,Math.Min(240,n));
    }}
-   Status("Остановлено. Требуется регистрация публичного ключа и назначение порта оператором.");
+   Status("Для первого подключения нужна регистрация устройства.");
   }
   void SaveSettings(){
    if(!Valid(false))return;
@@ -101,7 +132,7 @@ namespace HermesBridge {
    string args="-N -T -p "+serverPort+" -R 127.0.0.1:"+remote+":127.0.0.1:22 -i \""+Key+"\" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\""+Known+"\" -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 hermes-bridge@"+host.Text.Trim();
    try{
     ProcessStartInfo p=new ProcessStartInfo(Ssh,args);p.UseShellExecute=false;p.CreateNoWindow=true;
-    tunnel=Process.Start(p);Status("Сессия активна до "+deadline.ToLocalTime().ToString("HH:mm")+". PID "+tunnel.Id);
+    tunnel=Process.Start(p);Status("SSH-процесс запущен; доступ проверяется на шлюзе.");
    }catch(Exception ex){Status("Ошибка подключения: "+ex.Message);}
   }
   DateTime retryAt=DateTime.MinValue;
