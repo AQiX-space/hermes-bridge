@@ -69,17 +69,17 @@ namespace HermesBridge {
    if(running){if(!automatic)MessageBox.Show("Сначала отключи активный сеанс поддержки.","Обновление");return;}
    updating=true;updates.Enabled=false;updates.Text="Проверка подписанного обновления…";
    try {
-    UpdateManifest manifest=await UpdateClient.CheckAsync();
+    GitHubUpdater.Release manifest=await GitHubUpdater.CheckAsync();
     if(manifest==null){if(!automatic)MessageBox.Show("Новых подписанных обновлений нет.","Гермес Мост");return;}
     if(running||quitting)return;
-    if(!automatic && MessageBox.Show("Доступна версия "+manifest.version+". Установить?","Гермес Мост",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
+    if(!automatic && MessageBox.Show("Доступна версия "+manifest.tagName+". Установить?","Гермес Мост",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
     updates.Text="Загрузка и проверка обновления…";
-    string staged=await UpdateClient.StageAsync(manifest,Path.Combine(root,"updates"));
+    string staged=await GitHubUpdater.StageAsync(manifest,Path.Combine(root,"updates"));
     if(running||quitting)return;
-    UpdateClient.Apply(manifest,staged);
+    GitHubUpdater.Apply(manifest,staged);
     quitting=true;Close();
    }catch(Exception ex){
-    if(!automatic)MessageBox.Show("Обновление недоступно: "+ex.Message,"Гермес Мост",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+    if(!automatic)MessageBox.Show("Для приватных релизов нужен GitHub CLI (gh.exe) и вход gh auth login.\n\n"+ex.Message,"Гермес Мост",MessageBoxButtons.OK,MessageBoxIcon.Warning);
     else updates.Text="Автообновление недоступно";
    }finally{updating=false;updates.Enabled=true;if(!quitting)updates.Text="Проверить обновления";}
   }
