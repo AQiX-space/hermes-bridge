@@ -11,3 +11,7 @@ Publishing workflow (after malware review, Authenticode signing, testing):
 6. Updater performs safe replace + backup/rollback. Updates are applied only while Bridge is stopped.
 
 Server HTTP, TLS and release promotion still need deployment and end-to-end testing. A raw GitHub release is NOT an auto-update channel for untrusted clients.
+
+## Mirror publication (requires explicit production approval)
+
+Generate a stage with `stage_release.py`, independently compare GitHub SHA256, then verify it using `publish_mirror.py --staging DIR --public-key PUB.pem` (read-only). Only after specific production approval run under root with `--apply`. The script checks RSA signature, SHA256, refuses replacing a different release EXE, writes to temporary files, backs up the previous manifest with a UTC timestamp and promotes the new manifest last. Rollback: restore the old `beta.json` backup; versioned EXEs are retained. After publication verify TLS hostname, HTTP 200 and a real Windows updater run; never disable TLS verification for final validation.
