@@ -5,3 +5,6 @@
 client.ini
 known_hosts
 *ed25519*
+
+__pycache__/
+*.py[cod]

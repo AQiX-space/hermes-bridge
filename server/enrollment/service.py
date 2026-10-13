@@ -17,7 +17,10 @@ def public_key(value):
 class Enrollment:
     def __init__(self,path):
         self.path=str(path)
-        with self.db() as d:d.execute('CREATE TABLE IF NOT EXISTS requests(ticket TEXT PRIMARY KEY,device TEXT,key TEXT,created INTEGER,status TEXT,slot INTEGER,config TEXT)')
+        with self.db() as d:
+            d.execute('CREATE TABLE IF NOT EXISTS requests(ticket TEXT PRIMARY KEY,device TEXT,key TEXT,created INTEGER,status TEXT,slot INTEGER,config TEXT)')
+            d.execute("CREATE UNIQUE INDEX IF NOT EXISTS approved_slots ON requests(slot) WHERE status='approved'")
+            d.execute("CREATE UNIQUE INDEX IF NOT EXISTS approved_keys ON requests(key) WHERE status='approved'")
     @contextmanager
     def db(self):
         c=sqlite3.connect(self.path,timeout=15);c.row_factory=sqlite3.Row
@@ -65,7 +68,7 @@ class Enrollment:
                 info=target.stat()
                 fd,tmp=tempfile.mkstemp(prefix='.hermes-auth-',dir=str(target.parent))
                 try:
-                    os.fchmod(fd,0o600)
+                    if hasattr(os,"fchmod"):os.fchmod(fd,0o600)
                     if hasattr(os,'fchown'):os.fchown(fd,info.st_uid,info.st_gid)
                     with os.fdopen(fd,'w') as out:out.write(old.rstrip('\n')+'\n'+auth+'\n')
                     os.replace(tmp,target)
