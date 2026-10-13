@@ -1,0 +1,3 @@
+# Hermes Connector enrollment broker — experimental
+
+An unprivileged localhost-only Python service accepts PUBLIC ED25519 device keys (`POST /v1/enroll`), returns random tickets, and provides polling (`GET /v1/enroll/{ticket}`). Devices remain pending until a trusted local operator explicitly approves. The operator CLI is currently a **dry-run only**: it generates a restricted SSH `authorized_keys` line but never installs it. Rate limits, authenticated HTTPS, revocation of live sessions, and production deployment are not yet implemented. Do not expose HTTP listener publicly or treat device registration as permission without operator approval.
