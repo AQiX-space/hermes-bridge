@@ -74,7 +74,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Gate broker regression tests
         shell: pwsh
-        run: python server/enrollment/test_service.py
+        run: |
+          python server/enrollment/test_service.py
+          python server/enrollment/test_http.py
       - name: Enrollment regression tests
         shell: pwsh
         run: python server/test_enroll.py
