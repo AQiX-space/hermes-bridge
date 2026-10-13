@@ -35,22 +35,24 @@ jobs:
         run: |
           $root=Join-Path $env:RUNNER_TEMP 'hermes-updater-regression'
           New-Item -ItemType Directory -Force -Path $root | Out-Null
-          $dst=Join-Path $root 'HermesBridge.exe'
+          $dst=Join-Path $root 'Hermes Connector (1).exe'
           $src=Join-Path $root 'candidate.exe'
-          [IO.File]::WriteAllText($dst,'old-good-version')
-          [IO.File]::WriteAllText($src,'new-validated-version')
+          Copy-Item HermesBridge.exe $dst
+          Copy-Item HermesBridge.exe $src
+          [IO.File]::AppendAllText($src,'test-candidate-marker')
+          $oldHash=(Get-FileHash $dst -Algorithm SHA256).Hash
           $hash=(Get-FileHash $src -Algorithm SHA256).Hash.ToLowerInvariant()
           & .\HermesBridgeUpdater.exe '2147483646' $src $dst $hash 'test-no-launch'
           if ($LASTEXITCODE -ne 0) { throw "swap failed: $LASTEXITCODE" }
-          if ([IO.File]::ReadAllText($dst) -cne 'new-validated-version') { throw 'new binary not installed' }
-          if ([IO.File]::ReadAllText("$dst.previous") -cne 'old-good-version') { throw 'backup not preserved' }
+          if ((Get-FileHash $dst -Algorithm SHA256).Hash -cne $hash.ToUpperInvariant()) { throw 'new binary not installed' }
+          if ((Get-FileHash "$dst.previous" -Algorithm SHA256).Hash -cne $oldHash) { throw 'backup not preserved' }
           Write-Output 'PASS: verified replacement and backup'
-          [IO.File]::WriteAllText($dst,'old-good-version')
+          Copy-Item HermesBridge.exe $dst -Force
           [IO.File]::WriteAllText($src,'not-a-real-exe')
           $hash=(Get-FileHash $src -Algorithm SHA256).Hash.ToLowerInvariant()
           & .\HermesBridgeUpdater.exe '2147483646' $src $dst $hash 'launch'
           if ($LASTEXITCODE -ne 10) { throw "expected rollback exit 10, got: $LASTEXITCODE" }
-          if ([IO.File]::ReadAllText($dst) -cne 'old-good-version') { throw 'rollback failed' }
+          if ((Get-FileHash $dst -Algorithm SHA256).Hash -cne $oldHash) { throw 'rollback failed' }
           Write-Output 'PASS: failed launch restores previous version'
           Remove-Item -Recurse -Force $root
           exit 0 # expected rollback helper exit=10 must not become job exit

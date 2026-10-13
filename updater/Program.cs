@@ -16,7 +16,10 @@ namespace HermesBridgeUpdater {
    string staged=Path.GetFullPath(args[1]),dest=Path.GetFullPath(args[2]),expected=args[3].ToLowerInvariant();
    if(expected.Length!=64||!System.Text.RegularExpressions.Regex.IsMatch(expected,"^[0-9a-f]{64}$"))return 2;
    if(!File.Exists(staged)||!File.Exists(dest)||!String.Equals(BitConverter.ToString(Digest(staged)).Replace("-","").ToLowerInvariant(),expected,StringComparison.Ordinal))return 3;
-   if(!Path.GetFileName(dest).Equals("HermesBridge.exe",StringComparison.OrdinalIgnoreCase))return 4;
+   // Allow renamed download files, but never replace an unrelated executable.
+   if(!dest.EndsWith(".exe",StringComparison.OrdinalIgnoreCase))return 4;
+   var info=FileVersionInfo.GetVersionInfo(dest);
+   if(info.ProductName!="Hermes Connector"&&info.ProductName!="Гермес Мост")return 4;
    try {Process old=Process.GetProcessById(pid); if(!old.WaitForExit(30000))return 5;}catch(ArgumentException){}
    string backup=dest+".previous", tmp=dest+".pending";
    try {
