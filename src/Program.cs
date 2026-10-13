@@ -10,7 +10,7 @@ using System.Security.Principal;
 
 namespace HermesBridge {
  static class App {
-  [STAThread] static void Main(){Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);Application.Run(new BridgeForm());}
+  [STAThread] static void Main(string[] args){if(args.Length>0 && args[0]=="--probe"){var a=new string[args.Length-1];Array.Copy(args,1,a,0,a.Length);Environment.ExitCode=TunnelProbe.Run(a);return;}Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);Application.Run(new BridgeForm());}
  }
  sealed class BridgeForm : Form {
   readonly string root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesBridge");
