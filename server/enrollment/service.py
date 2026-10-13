@@ -52,6 +52,7 @@ class Enrollment:
             r=d.execute('SELECT * FROM requests WHERE ticket=? AND status=?',(ticket,'pending')).fetchone()
             if not r or time.time()-r['created']>900:raise ValueError('not pending')
             if d.execute('SELECT 1 FROM requests WHERE status=? AND slot=?',('approved',slot)).fetchone():raise ValueError('slot already assigned')
+            if d.execute('SELECT 1 FROM requests WHERE status=? AND key=?',('approved',r['key'])).fetchone():raise ValueError('key already registered')
             config={'host':host,'port':22471,'slot':slot,'hostkey':public_key(hostkey)}
             auth='restrict,port-forwarding,permitlisten="127.0.0.1:%s" %s' % (slot,r['key'])
             backup=None
@@ -74,7 +75,12 @@ class Enrollment:
                     os.replace(tmp,target)
                 finally:
                     if os.path.exists(tmp):os.unlink(tmp)
-                d.execute('UPDATE requests SET status=?,slot=?,config=? WHERE ticket=?',('approved',slot,json.dumps(config),ticket))
+                try:
+                    d.execute('UPDATE requests SET status=?,slot=?,config=? WHERE ticket=?',('approved',slot,json.dumps(config),ticket))
+                    d.commit()
+                except Exception:
+                    shutil.copy2(backup,target)
+                    raise
             return {'auth_line':auth,'config':config,'dry_run':not apply,'backup':str(backup) if backup else None}
 
 def handler(db):
