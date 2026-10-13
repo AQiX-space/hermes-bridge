@@ -19,6 +19,15 @@ with tempfile.TemporaryDirectory() as d:
  try:s.approve(second,23002,'router-mgmt.aqixnet.com',key,apply=True,keys_file=auth);raise Exception('duplicate device key accepted')
  except ValueError:pass
  assert auth.read_text().count('permitlisten=')==1
+ third_key='ssh-ed25519 '+base64.b64encode(b'\0\0\0\x0bssh-ed25519\0\0\0\x20'+bytes(reversed(range(32)))).decode()
+ third=s.submit('Rollback-test',third_key)
+ before=auth.read_bytes()
+ with s.db() as conn: conn.execute("CREATE TRIGGER refuse_approval BEFORE UPDATE ON requests BEGIN SELECT RAISE(ABORT, 'simulate db failure'); END")
+ try:s.approve(third,23003,'router-mgmt.aqixnet.com',key,apply=True,keys_file=auth);raise Exception('DB failure not detected')
+ except Exception as ex:assert 'simulate db failure' in str(ex)
+ assert auth.read_bytes()==before, 'database failure left unauthorized device key behind'
+ assert s.poll(third)=={'status':'pending'}
+
  try:s.submit('Bad',key+'\ncommand="evil"');raise Exception('bad key accepted')
  except ValueError:pass
  try:s.approve(t,23001,'router-mgmt.aqixnet.com',key);raise Exception('replay accepted')

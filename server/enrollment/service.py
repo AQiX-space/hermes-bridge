@@ -62,7 +62,7 @@ class Enrollment:
                 if target.is_symlink() or not target.is_file():raise ValueError('authorized_keys must exist as regular file')
                 old=target.read_text()
                 if '\r' in old or auth in old:raise ValueError('invalid or duplicate authorized_keys')
-                stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+                stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
                 backup=Path(str(target)+'.backup-'+stamp)
                 if backup.exists():raise ValueError('backup path occupied')
                 shutil.copy2(target,backup)
