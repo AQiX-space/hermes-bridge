@@ -7,6 +7,7 @@ using System.Drawing;
 using System.Windows.Forms;
 using System.Security.Cryptography;
 using System.Security.Principal;
+using System.Threading.Tasks;
 
 namespace HermesBridge {
  static class App {
@@ -17,7 +18,7 @@ namespace HermesBridge {
   TextBox host=new TextBox(),port=new TextBox(),slot=new TextBox(),known=new TextBox(),device=new TextBox();
   NumericUpDown ttl=new NumericUpDown(); Label state=new Label(); Button start=new Button(),stop=new Button(),reload=new Button(),save=new Button(),import=new Button();
   NotifyIcon tray=new NotifyIcon(); System.Windows.Forms.Timer heartbeat=new System.Windows.Forms.Timer();
-  Process tunnel; DateTime deadline; bool running=false, quitting=false, updating=false, forwardConfirmed=false; string lastTunnelFailure="";
+  Process tunnel; DateTime deadline; bool running=false, quitting=false, updating=false, forwardConfirmed=false, enrolling=false, cancelEnrollment=false; string lastTunnelFailure="";
   string Config {get{return Path.Combine(root,"client.ini");}}
   string Ssh {get{return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"OpenSSH","ssh.exe");}}
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
@@ -54,10 +55,10 @@ namespace HermesBridge {
    advanced.Height=y+119;
    keyCopy.Click+=(s,e)=>{if(EnsureKey()){Clipboard.SetText(File.ReadAllText(Key+".pub"));Status("Ключ скопирован. Нужна регистрация на шлюзе.");}};
    import.Click+=(s,e)=>ImportProvision();save.Click+=(s,e)=>SaveSettings();reload.Click+=(s,e)=>{StopBridge();LoadSettings();};
-   start.Click+=(s,e)=>StartBridge();stop.Click+=(s,e)=>StopBridge();
+   start.Click+=async (s,e)=>await StartOrEnrollAsync();stop.Click+=(s,e)=>StopBridge();
    setup.Click+=(s,e)=>{advanced.Visible=!advanced.Visible;setup.Text=advanced.Visible?"Скрыть настройки  ▴":"Настройки и регистрация  ▾";Height=advanced.Visible?865:535;};
    Icon=System.Drawing.Icon.ExtractAssociatedIcon(System.Reflection.Assembly.GetExecutingAssembly().Location);tray.Icon=Icon;tray.Text="Hermes Connector";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();
-   ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());menu.Items.Add("Подключить",null,(s,e)=>StartBridge());menu.Items.Add("Отключить",null,(s,e)=>StopBridge());menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
+   ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());menu.Items.Add("Подключить",null,async (s,e)=>await StartOrEnrollAsync());menu.Items.Add("Отключить",null,(s,e)=>StopBridge());menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
    // Automatic updates only while remote support is disconnected. Signed manifest required.
    updateTimer.Interval=6*60*60*1000;
    updateTimer.Tick+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
@@ -114,12 +115,12 @@ namespace HermesBridge {
    if(state==null)return;
    bool processAlive=false;
    try{processAlive=tunnel!=null&&!tunnel.HasExited;}catch{}
-   state.Text=running&&processAlive&&forwardConfirmed?"Канал открыт":running?"Подключение…":"Доступ отключён";
+   state.Text=running&&processAlive&&forwardConfirmed?"Канал открыт":enrolling?"Ожидаем разрешение":running?"Подключение…":"Доступ отключён";
    state.ForeColor=running&&processAlive&&forwardConfirmed?Color.FromArgb(22,101,52):running?blue:ink;
    connectionInfo.Text=value;
    deviceInfo.Text="Компьютер: "+(device.Text.Trim().Length>0?device.Text.Trim():Environment.MachineName);
    expiryInfo.Text=running?"Автоматическое отключение: "+deadline.ToLocalTime().ToString("HH:mm"):"Закрытие окна оставит программу в трее";
-   start.Enabled=!running;stop.Enabled=running;
+   start.Enabled=!running&&!enrolling;stop.Enabled=running||enrolling;
   }
   void LoadSettings(){
    device.Text=Environment.MachineName;host.Text="";port.Text="22471";slot.Text="";known.Text=Known;ttl.Value=60;
@@ -168,6 +169,32 @@ namespace HermesBridge {
    var psi=new ProcessStartInfo(keygen,"-q -t ed25519 -N \"\" -f \""+Key+"\"");psi.UseShellExecute=false;psi.CreateNoWindow=true;
    using(Process p=Process.Start(psi)){p.WaitForExit(15000);if(!p.HasExited){p.Kill();Error("Генерация ключа превысила 15 секунд");return false;}if(p.ExitCode!=0){Error("Не удалось создать ключ устройства");return false;}}
    return File.Exists(Key)&&File.Exists(Key+".pub");
+  }
+  const string EnrollmentApi="https://enroll.aqix.ru/"; // Dedicated TLS endpoint, not yet deployed.
+  async Task StartOrEnrollAsync(){
+   if(running||enrolling)return;
+   if(!EnsureKey())return;
+   if(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known)){StartBridge();return;}
+   enrolling=true;cancelEnrollment=false;Status("Отправляем заявку на доступ…");
+   try{
+    Uri endpoint=new Uri(EnrollmentApi);
+    EnrollmentTicket ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim());
+    Status("Запрос отправлен. Ожидается разрешение оператора.");
+    for(int i=0;i<100&&!cancelEnrollment;i++){
+     await Task.Delay(3000);
+     if(cancelEnrollment)break;
+     EnrollmentResult answer=await EnrollmentClient.PollAsync(endpoint,ticket.ticket);
+     if(answer.status=="approved"){
+      EnrollmentClient.SaveApproved(answer.config,root);
+      host.Text=answer.config.host;port.Text=answer.config.port.ToString();slot.Text=answer.config.slot.ToString();
+      SaveSettings();enrolling=false;
+      if(!cancelEnrollment)StartBridge();return;
+     }
+     if(answer.status=="expired"||answer.status=="denied")throw new InvalidOperationException("Регистрация отклонена или истекла.");
+    }
+    if(!cancelEnrollment)throw new TimeoutException("Истекло ожидание подтверждения оператора.");
+   }catch(Exception ex){if(!cancelEnrollment)Status("Регистрация недоступна: "+ex.Message);}
+   finally{enrolling=false;Status(cancelEnrollment?"Запрос отменён.":connectionInfo.Text);}
   }
   void StartBridge(){
    if(running)return;
@@ -218,7 +245,7 @@ namespace HermesBridge {
    retryAt=DateTime.UtcNow.AddSeconds(10);Launch();
   }
   void StopBridge(){
-   running=false;forwardConfirmed=false;lastTunnelFailure="";
+   cancelEnrollment=true;enrolling=false;running=false;forwardConfirmed=false;lastTunnelFailure="";
    if(tunnel!=null){try{if(!tunnel.HasExited)tunnel.Kill();tunnel.Dispose();}catch{}tunnel=null;}
    Status("Остановлено. Локальный процесс туннеля завершён.");
   }
