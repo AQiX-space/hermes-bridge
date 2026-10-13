@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Diagnostics;
+using System.Net;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
@@ -9,19 +10,25 @@ using System.Web.Script.Serialization;
 
 namespace HermesBridge {
  public static class GitHubUpdater {
-  const string Repository="AQiX-space/hermes-bridge";
-  // Personal private GitHub access: gh CLI uses the owner's credential store.
-  // No GitHub token is embedded in the binary or passed on the command line.
-  public sealed class Release {public string tagName{get;set;} public bool isDraft{get;set;} public Asset[] assets{get;set;}}
-  public sealed class Asset {public string name{get;set;} public string digest{get;set;}}
-  static string Run(string args, int timeoutMs=45000) {
-   var pi=new ProcessStartInfo("gh.exe",args){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
-   using(var p=Process.Start(pi)){
-    string output=p.StandardOutput.ReadToEnd();string err=p.StandardError.ReadToEnd();
-    if(!p.WaitForExit(timeoutMs)){p.Kill();throw new TimeoutException("GitHub timeout");}
-    if(p.ExitCode!=0)throw new InvalidOperationException("GitHub: "+err.Trim());
-    return output;
-   }
+  const string Api="https://api.github.com/repos/AQiX-space/hermes-bridge/releases?per_page=100";
+  // Public GitHub Releases: no token, gh CLI, mirror or backend needed.
+  public sealed class Release {
+   public string tag_name{get;set;}
+   public bool draft{get;set;}
+   public bool prerelease{get;set;}
+   public Asset[] assets{get;set;}
+   public string tagName {get{return tag_name;}}
+  }
+  public sealed class Asset {
+   public string name{get;set;}
+   public string digest{get;set;}
+   public string browser_download_url{get;set;}
+  }
+  static WebClient Client() {
+   ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+   var c=new WebClient();c.Headers[HttpRequestHeader.UserAgent]="HermesConnector/"+CurrentTag;
+   c.Headers[HttpRequestHeader.Accept]="application/vnd.github+json";
+   return c;
   }
   public static string CurrentTag {
    get {var a=Assembly.GetExecutingAssembly().GetCustomAttributes(typeof(AssemblyInformationalVersionAttribute),false);
@@ -36,31 +43,29 @@ namespace HermesBridge {
    return new Version(int.Parse(m.Groups[1].Value),int.Parse(m.Groups[2].Value),int.Parse(m.Groups[3].Value),beta);
   }
   public static async Task<Release> CheckAsync(){return await Task.Run(()=>{
-   var json=Run("release list -R "+Repository+" --limit 100 --json tagName,isDraft",30000);
-   var items=new JavaScriptSerializer().Deserialize<Release[]>(json);
-   Version current=VersionOf(CurrentTag);string bestTag=null;Version best=current;
-   foreach(var item in items){
-    if(item.isDraft)continue;
-    Version ver;try{ver=VersionOf(item.tagName);}catch{continue;}
-    if(ver>best){best=ver;bestTag=item.tagName;}
+   string json;
+   using(var client=Client())json=client.DownloadString(Api);
+   var releases=new JavaScriptSerializer().Deserialize<Release[]>(json);
+   Version current=VersionOf(CurrentTag);Release best=null;Version bestVersion=current;
+   foreach(var r in releases){
+    if(r.draft)continue;
+    Version v;try{v=VersionOf(r.tag_name);}catch{continue;}
+    if(v>bestVersion){best=r;bestVersion=v;}
    }
-   if(bestTag==null)return null;
-   var releaseJson=Run("release view "+bestTag+" -R "+Repository+" --json tagName,isDraft,assets");
-   var r=new JavaScriptSerializer().Deserialize<Release>(releaseJson);
-   if(r.isDraft||r.tagName!=bestTag||r.assets==null)throw new InvalidDataException("Invalid release metadata");
-   return r;
+   return best;
   });}
   public static async Task<string> StageAsync(Release r,string dir){return await Task.Run(()=>{
-   if(r==null||!Regex.IsMatch(r.tagName??"",@"^v\d+\.\d+\.\d+(?:-beta\.\d+)?$"))throw new InvalidDataException("Invalid release tag");
+   if(r==null||r.draft||!Regex.IsMatch(r.tag_name??"",@"^v\d+\.\d+\.\d+(?:-beta\.\d+)?$"))throw new InvalidDataException("Invalid release tag");
    var asset=Array.Find(r.assets,a=>a.name=="HermesBridge.exe");
-   if(asset==null||!Regex.IsMatch(asset.digest??"","^sha256:[a-fA-F0-9]{64}$"))throw new InvalidDataException("Missing release digest");
+   if(asset==null||!Regex.IsMatch(asset.digest??"","^sha256:[a-fA-F0-9]{64}$"))throw new InvalidDataException("Release SHA256 unavailable");
+   Uri u;if(!Uri.TryCreate(asset.browser_download_url,UriKind.Absolute,out u)||u.Scheme!="https"||u.Host!="github.com"||!u.AbsolutePath.StartsWith("/AQiX-space/hermes-bridge/releases/download/"))throw new InvalidDataException("Untrusted download URL");
    Directory.CreateDirectory(dir);
-   Run("release download "+r.tagName+" -R "+Repository+" -p HermesBridge.exe -D \""+dir+"\" --clobber",120000);
-   string path=Path.Combine(dir,"HermesBridge.exe");
+   string path=Path.Combine(dir,"HermesBridge.new.exe");
+   using(var client=Client())client.DownloadFile(u,path);
    var info=new FileInfo(path);if(info.Length<1024||info.Length>100*1024*1024)throw new InvalidDataException("Invalid executable size");
    using(var f=File.OpenRead(path))using(var sha=SHA256.Create()){
     string digest=BitConverter.ToString(sha.ComputeHash(f)).Replace("-","").ToLowerInvariant();
-    if("sha256:"+digest!=asset.digest.ToLowerInvariant()){File.Delete(path);throw new CryptographicException("GitHub release checksum mismatch");}
+    if("sha256:"+digest!=asset.digest.ToLowerInvariant()){File.Delete(path);throw new CryptographicException("GitHub checksum mismatch");}
    }
    return path;
   });}

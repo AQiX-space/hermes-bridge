@@ -25,11 +25,11 @@ namespace HermesBridge {
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), updates=new Button(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
-   Text="Hermes Connector 0.2.0-beta.5"; Width=520;Height=535;MinimumSize=new Size(520,535);MaximumSize=new Size(520,820);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.2.0-beta.6"; Width=520;Height=535;MinimumSize=new Size(520,535);MaximumSize=new Size(520,820);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=430,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="Версия 0.2.0-beta.5 · Доступ только с разрешения",ForeColor=muted,Left=28,Top=66,Width=435,Height=27};Controls.Add(subtitle);
+   subtitle=new Label(){Text="Версия 0.2.0-beta.6 · Доступ только с разрешения",ForeColor=muted,Left=28,Top=66,Width=435,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=22,Top=110,Width=455,Height=140,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=16;state.Width=417;state.Height=42;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=66;connectionInfo.Width=417;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
@@ -79,7 +79,7 @@ namespace HermesBridge {
     GitHubUpdater.Apply(manifest,staged);
     quitting=true;Close();
    }catch(Exception ex){
-    if(!automatic)MessageBox.Show("Для приватных релизов нужен GitHub CLI (gh.exe) и вход gh auth login.\n\n"+ex.Message,"Гермес Мост",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+    if(!automatic)MessageBox.Show(""+ex.Message,"Гермес Мост",MessageBoxButtons.OK,MessageBoxIcon.Warning);
     else updates.Text="Автообновление недоступно";
    }finally{updating=false;updates.Enabled=true;if(!quitting)updates.Text="Проверить обновления";}
   }

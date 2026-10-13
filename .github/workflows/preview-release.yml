@@ -27,7 +27,7 @@ jobs:
           $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           & $csc /nologo /target:exe /optimize+ /out:HermesBridgeUpdater.exe updater\Program.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $csc /nologo /target:winexe /optimize+ /out:HermesBridge.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /resource:HermesBridgeUpdater.exe,HermesBridgeUpdater.exe src\Program.cs src\UpdateClient.cs src\GitHubUpdater.cs src\VersionInfo.cs
+          & $csc /nologo /target:winexe /optimize+ /win32icon:assets\HermesConnector.ico /out:HermesBridge.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /resource:HermesBridgeUpdater.exe,HermesBridgeUpdater.exe src\Program.cs src\UpdateClient.cs src\GitHubUpdater.cs src\VersionInfo.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Store preview in private draft for independent security check
         shell: pwsh
