@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Operator-approved enrollment broker. Serve on 127.0.0.1 behind trusted HTTPS."""
 import argparse, base64, json, os, re, secrets, sqlite3, time
+from contextlib import contextmanager
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -16,8 +17,17 @@ class Enrollment:
     def __init__(self,path):
         self.path=str(path)
         with self.db() as d:d.execute('CREATE TABLE IF NOT EXISTS requests(ticket TEXT PRIMARY KEY,device TEXT,key TEXT,created INTEGER,status TEXT,slot INTEGER,config TEXT)')
+    @contextmanager
     def db(self):
-        c=sqlite3.connect(self.path,timeout=15);c.row_factory=sqlite3.Row;return c
+        c=sqlite3.connect(self.path,timeout=15);c.row_factory=sqlite3.Row
+        try:
+            yield c
+            c.commit()
+        except:
+            c.rollback()
+            raise
+        finally:
+            c.close()
     def submit(self,device,key):
         if not isinstance(device,str) or not re.fullmatch(r'[a-zA-Z0-9._-]{1,64}',device):raise ValueError('bad device')
         key=public_key(key);ticket=secrets.token_urlsafe(32)
