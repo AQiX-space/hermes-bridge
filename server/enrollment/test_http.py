@@ -12,7 +12,8 @@ with tempfile.TemporaryDirectory() as tmp:
   with urllib.request.urlopen(request,timeout=3) as r:
    assert r.status==202;ticket=json.load(r)['ticket']
   with urllib.request.urlopen(api+'/'+ticket,timeout=3) as r: assert json.load(r)=={'status':'pending'}
-  db.approve(ticket,23011,'router-mgmt.aqixnet.com',key,apply=True)
+  auth=pathlib.Path(tmp)/'authorized_keys';auth.write_text('existing-safe-ssh-key\n')
+  db.approve(ticket,23011,'router-mgmt.aqixnet.com',key,apply=True,keys_file=auth)
   with urllib.request.urlopen(api+'/'+ticket,timeout=3) as r:
    response=json.load(r);assert response['status']=='approved'
    assert response['config']['slot']==23011

@@ -10,7 +10,10 @@ with tempfile.TemporaryDirectory() as d:
  response=s.approve(t,23001,'router-mgmt.aqixnet.com',key)
  assert response['dry_run'] and 'permitlisten="127.0.0.1:23001"' in response['auth_line']
  assert s.poll(t)=={'status':'pending'}
- s.approve(t,23001,'router-mgmt.aqixnet.com',key,apply=True)
+ auth=pathlib.Path(d)/'authorized_keys';auth.write_text('existing-safe-ssh-key\n')
+ s.approve(t,23001,'router-mgmt.aqixnet.com',key,apply=True,keys_file=auth)
+ assert 'permitlisten=\"127.0.0.1:23001\"' in auth.read_text()
+ assert list(pathlib.Path(d).glob('authorized_keys.backup-*'))
  assert s.poll(t)['config']['slot']==23001
  try:s.submit('Bad',key+'\ncommand="evil"');raise Exception('bad key accepted')
  except ValueError:pass

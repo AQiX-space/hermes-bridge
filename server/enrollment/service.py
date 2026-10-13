@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Operator-approved enrollment broker. Serve on 127.0.0.1 behind trusted HTTPS."""
 import argparse, base64, json, os, re, secrets, sqlite3, time
+import datetime, shutil, tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -41,7 +42,7 @@ class Enrollment:
         result={'status':r['status']}
         if r['status']=='approved':result['config']=json.loads(r['config'])
         return result
-    def approve(self,ticket,slot,host,hostkey,apply=False):
+    def approve(self,ticket,slot,host,hostkey,apply=False,keys_file=None):
         if not 23000<=slot<=24999:raise ValueError('invalid slot')
         if not re.fullmatch(r'[A-Za-z0-9.-]{3,255}',host):raise ValueError('invalid host')
         with self.db() as d:
@@ -50,8 +51,28 @@ class Enrollment:
             if d.execute('SELECT 1 FROM requests WHERE status=? AND slot=?',('approved',slot)).fetchone():raise ValueError('slot already assigned')
             config={'host':host,'port':22471,'slot':slot,'hostkey':public_key(hostkey)}
             auth='restrict,port-forwarding,permitlisten="127.0.0.1:%s" %s' % (slot,r['key'])
-            if apply:d.execute('UPDATE requests SET status=?,slot=?,config=? WHERE ticket=?',('approved',slot,json.dumps(config),ticket))
-            return {'auth_line':auth,'config':config,'dry_run':not apply}
+            backup=None
+            if apply:
+                if keys_file is None:raise ValueError('authorized_keys path required for approval')
+                target=Path(keys_file)
+                if target.is_symlink() or not target.is_file():raise ValueError('authorized_keys must exist as regular file')
+                old=target.read_text()
+                if '\r' in old or auth in old:raise ValueError('invalid or duplicate authorized_keys')
+                stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+                backup=Path(str(target)+'.backup-'+stamp)
+                if backup.exists():raise ValueError('backup path occupied')
+                shutil.copy2(target,backup)
+                info=target.stat()
+                fd,tmp=tempfile.mkstemp(prefix='.hermes-auth-',dir=str(target.parent))
+                try:
+                    os.fchmod(fd,0o600)
+                    if hasattr(os,'fchown'):os.fchown(fd,info.st_uid,info.st_gid)
+                    with os.fdopen(fd,'w') as out:out.write(old.rstrip('\n')+'\n'+auth+'\n')
+                    os.replace(tmp,target)
+                finally:
+                    if os.path.exists(tmp):os.unlink(tmp)
+                d.execute('UPDATE requests SET status=?,slot=?,config=? WHERE ticket=?',('approved',slot,json.dumps(config),ticket))
+            return {'auth_line':auth,'config':config,'dry_run':not apply,'backup':str(backup) if backup else None}
 
 def handler(db):
     class Handler(BaseHTTPRequestHandler):
@@ -74,10 +95,10 @@ def handler(db):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--db',type=Path,required=True);sub=p.add_subparsers(dest='action',required=True)
     sub.add_parser('serve');sub.add_parser('pending')
-    ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--slot',type=int,required=True);ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True)
+    ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--slot',type=int,required=True);ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     a=p.parse_args();db=Enrollment(a.db)
     if a.action=='serve':ThreadingHTTPServer(('127.0.0.1',18511),handler(db)).serve_forever()
     elif a.action=='pending':
         with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created FROM requests WHERE status='pending' AND created>?",(int(time.time())-900,))]))
-    else:print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,False),indent=2))
+    else:print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file),indent=2))
 if __name__=='__main__':main()
