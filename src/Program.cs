@@ -17,7 +17,7 @@ namespace HermesBridge {
   TextBox host=new TextBox(),port=new TextBox(),slot=new TextBox(),known=new TextBox(),device=new TextBox();
   NumericUpDown ttl=new NumericUpDown(); Label state=new Label(); Button start=new Button(),stop=new Button(),reload=new Button(),save=new Button(),import=new Button();
   NotifyIcon tray=new NotifyIcon(); System.Windows.Forms.Timer heartbeat=new System.Windows.Forms.Timer();
-  Process tunnel; DateTime deadline; bool running=false, quitting=false, updating=false;
+  Process tunnel; DateTime deadline; bool running=false, quitting=false, updating=false, forwardConfirmed=false; string lastTunnelFailure="";
   string Config {get{return Path.Combine(root,"client.ini");}}
   string Ssh {get{return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"OpenSSH","ssh.exe");}}
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
@@ -114,8 +114,8 @@ namespace HermesBridge {
    if(state==null)return;
    bool processAlive=false;
    try{processAlive=tunnel!=null&&!tunnel.HasExited;}catch{}
-   state.Text=processAlive?"SSH-клиент работает":running?"Переподключение…":"Доступ отключён";
-   state.ForeColor=processAlive?Color.FromArgb(22,101,52):running?blue:ink;
+   state.Text=running&&processAlive&&forwardConfirmed?"Канал открыт":running?"Подключение…":"Доступ отключён";
+   state.ForeColor=running&&processAlive&&forwardConfirmed?Color.FromArgb(22,101,52):running?blue:ink;
    connectionInfo.Text=value;
    deviceInfo.Text="Компьютер: "+(device.Text.Trim().Length>0?device.Text.Trim():Environment.MachineName);
    expiryInfo.Text=running?"Автоматическое отключение: "+deadline.ToLocalTime().ToString("HH:mm"):"Закрытие окна оставит программу в трее";
@@ -188,11 +188,24 @@ namespace HermesBridge {
   void Launch(){
    if(!running||DateTime.UtcNow>=deadline)return;
    int serverPort=int.Parse(port.Text),remote=int.Parse(slot.Text);
-   string args="-N -T -p "+serverPort+" -R 127.0.0.1:"+remote+":127.0.0.1:22 -i \""+Key+"\" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\""+Known+"\" -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 hermes-bridge@"+host.Text.Trim();
+   string args="-v -N -T -p "+serverPort+" -R 127.0.0.1:"+remote+":127.0.0.1:22 -i \""+Key+"\" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\""+Known+"\" -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 hermes-bridge@"+host.Text.Trim();
    try{
     if(tunnel!=null){try{tunnel.Dispose();}catch{}tunnel=null;}
-    ProcessStartInfo p=new ProcessStartInfo(Ssh,args);p.UseShellExecute=false;p.CreateNoWindow=true;
-    tunnel=Process.Start(p);Status("Соединение запущено. Проверка доступности шлюза выполняется отдельно.");
+    forwardConfirmed=false;lastTunnelFailure="";
+    ProcessStartInfo p=new ProcessStartInfo(Ssh,args);p.UseShellExecute=false;p.CreateNoWindow=true;p.RedirectStandardError=true;
+    Process process=new Process();process.StartInfo=p;
+    process.ErrorDataReceived+=(sender,e)=>{
+     if(e.Data==null)return;
+     bool isReady=SshEvents.ForwardReady(e.Data);
+     string failure=SshEvents.HumanFailure(e.Data);
+     if(!isReady&&failure==null)return;
+     try{if(IsHandleCreated&&!IsDisposed)BeginInvoke(new Action(()=>{
+      if(!running||tunnel!=process)return;
+      if(isReady){forwardConfirmed=true;Status("Обратный порт подтверждён сервером.");}
+      if(failure!=null){lastTunnelFailure=failure;Status(failure);}
+     }));}catch(ObjectDisposedException){}
+    };
+    process.Start();tunnel=process;process.BeginErrorReadLine();Status("Ожидаем подтверждение канала от сервера…");
    }catch(Exception ex){Status("Ошибка подключения: "+ex.Message);}
   }
   DateTime retryAt=DateTime.MinValue;
@@ -200,11 +213,12 @@ namespace HermesBridge {
    if(!running)return;
    if(DateTime.UtcNow>=deadline){StopBridge();Status("Время сессии истекло; доступ закрыт.");return;}
    if(tunnel!=null&&!tunnel.HasExited)return;
+   if(tunnel!=null){forwardConfirmed=false;if(lastTunnelFailure.Length>0)Status(lastTunnelFailure+" Повторное подключение…");}
    if(DateTime.UtcNow<retryAt)return;
    retryAt=DateTime.UtcNow.AddSeconds(10);Launch();
   }
   void StopBridge(){
-   running=false;
+   running=false;forwardConfirmed=false;lastTunnelFailure="";
    if(tunnel!=null){try{if(!tunnel.HasExited)tunnel.Kill();tunnel.Dispose();}catch{}tunnel=null;}
    Status("Остановлено. Локальный процесс туннеля завершён.");
   }
