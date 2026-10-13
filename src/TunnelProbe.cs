@@ -22,7 +22,12 @@ namespace HermesBridge {
     try{p.Start();p.BeginErrorReadLine();}catch(Exception ex){Console.Error.WriteLine(ex.Message);return 4;}
     try{
      DateTime end=DateTime.UtcNow.AddSeconds(seconds);
-     while(DateTime.UtcNow<end && !p.HasExited){lock(log){if(established){Console.WriteLine("PASS REMOTE_FORWARD_ESTABLISHED");return 0;}}Thread.Sleep(150);}
+     bool wasEstablished=false;
+     while(DateTime.UtcNow<end && !p.HasExited){
+      lock(log){if(established&&!wasEstablished){Console.WriteLine("PASS REMOTE_FORWARD_ESTABLISHED");wasEstablished=true;}}
+      Thread.Sleep(150);
+     }
+     if(wasEstablished&&!p.HasExited){Console.WriteLine("PASS FORWARD_HELD_FOR_TEST_WINDOW");return 0;}
      string report;lock(log){report=log.ToString();}
      if(report.Length>4000)report=report.Substring(report.Length-4000);
      Console.Error.WriteLine(report);
