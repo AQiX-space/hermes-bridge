@@ -22,14 +22,14 @@ namespace HermesBridge {
   string Ssh {get{return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"OpenSSH","ssh.exe");}}
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
-  Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), updates=new Button(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
+  Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), updates=new Button(), shortcut=new Button(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
-   Text="Hermes Connector 0.2.0-beta.6"; Width=520;Height=535;MinimumSize=new Size(520,535);MaximumSize=new Size(520,820);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.2.0-beta.7"; Width=520;Height=535;MinimumSize=new Size(520,535);MaximumSize=new Size(520,865);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=430,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="Версия 0.2.0-beta.6 · Доступ только с разрешения",ForeColor=muted,Left=28,Top=66,Width=435,Height=27};Controls.Add(subtitle);
+   subtitle=new Label(){Text="Версия 0.2.0-beta.7 · Доступ только с разрешения",ForeColor=muted,Left=28,Top=66,Width=435,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=22,Top=110,Width=455,Height=140,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=16;state.Width=417;state.Height=42;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=66;connectionInfo.Width=417;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
@@ -47,13 +47,15 @@ namespace HermesBridge {
    known.Visible=false;
    keyCopy=new Button(){Text="Скопировать ключ",Left=25,Top=y,Width=208,Height=32};advanced.Controls.Add(keyCopy);
    import.Text="Импорт регистрации";import.Left=249;import.Top=y;import.Width=208;import.Height=32;advanced.Controls.Add(import);
-   save.Text="Сохранить";save.Left=25;save.Top=y+39;save.Width=208;save.Height=32;advanced.Controls.Add(save);
-   reload.Text="Перечитать";reload.Left=249;reload.Top=y+39;reload.Width=208;reload.Height=32;advanced.Controls.Add(reload);
-   advanced.Height=y+77;
+   shortcut.Text="Ярлык на рабочем столе";shortcut.Left=25;shortcut.Top=y+39;shortcut.Width=432;shortcut.Height=32;advanced.Controls.Add(shortcut);
+   shortcut.Click+=(s,e)=>CreateDesktopShortcut();
+   save.Text="Сохранить";save.Left=25;save.Top=y+78;save.Width=208;save.Height=32;advanced.Controls.Add(save);
+   reload.Text="Перечитать";reload.Left=249;reload.Top=y+78;reload.Width=208;reload.Height=32;advanced.Controls.Add(reload);
+   advanced.Height=y+119;
    keyCopy.Click+=(s,e)=>{if(EnsureKey()){Clipboard.SetText(File.ReadAllText(Key+".pub"));Status("Ключ скопирован. Нужна регистрация на шлюзе.");}};
    import.Click+=(s,e)=>ImportProvision();save.Click+=(s,e)=>SaveSettings();reload.Click+=(s,e)=>{StopBridge();LoadSettings();};
    start.Click+=(s,e)=>StartBridge();stop.Click+=(s,e)=>StopBridge();
-   setup.Click+=(s,e)=>{advanced.Visible=!advanced.Visible;setup.Text=advanced.Visible?"Скрыть настройки  ▴":"Настройки и регистрация  ▾";Height=advanced.Visible?820:535;};
+   setup.Click+=(s,e)=>{advanced.Visible=!advanced.Visible;setup.Text=advanced.Visible?"Скрыть настройки  ▴":"Настройки и регистрация  ▾";Height=advanced.Visible?865:535;};
    Icon=System.Drawing.Icon.ExtractAssociatedIcon(System.Reflection.Assembly.GetExecutingAssembly().Location);tray.Icon=Icon;tray.Text="Hermes Connector";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();
    ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());menu.Items.Add("Подключить",null,(s,e)=>StartBridge());menu.Items.Add("Отключить",null,(s,e)=>StopBridge());menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
    // Automatic updates only while remote support is disconnected. Signed manifest required.
@@ -84,6 +86,29 @@ namespace HermesBridge {
    }finally{updating=false;updates.Enabled=true;if(!quitting)updates.Text="Проверить обновления";}
   }
   void AddLine(string title,TextBox t,ref int y){advanced.Controls.Add(new Label(){Text=title,Left=26,Top=y+4,Width=240});t.Left=270;t.Top=y;t.Width=189;advanced.Controls.Add(t);y+=34;}
+  void CreateDesktopShortcut(){
+   try{
+    string exe=System.Reflection.Assembly.GetExecutingAssembly().Location;
+    string desktop=Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+    if(String.IsNullOrWhiteSpace(desktop))throw new InvalidOperationException("Не найден рабочий стол");
+    string link=Path.Combine(desktop,"Hermes Connector.lnk");
+    Type shellType=Type.GetTypeFromProgID("WScript.Shell");
+    if(shellType==null)throw new InvalidOperationException("Нет поддержки Windows Shortcut");
+    object shell=Activator.CreateInstance(shellType);
+    try{
+     object obj=shellType.InvokeMember("CreateShortcut",System.Reflection.BindingFlags.InvokeMethod,null,shell,new object[]{link});
+     try{
+      Type t=obj.GetType();var flags=System.Reflection.BindingFlags.SetProperty;
+      t.InvokeMember("TargetPath",flags,null,obj,new object[]{exe});
+      t.InvokeMember("WorkingDirectory",flags,null,obj,new object[]{Path.GetDirectoryName(exe)});
+      t.InvokeMember("IconLocation",flags,null,obj,new object[]{exe+",0"});
+      t.InvokeMember("Description",flags,null,obj,new object[]{"Hermes Connector — доступ с разрешения"});
+      t.InvokeMember("Save",System.Reflection.BindingFlags.InvokeMethod,null,obj,new object[]{});
+     }finally{System.Runtime.InteropServices.Marshal.FinalReleaseComObject(obj);}
+    }finally{System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell);}
+    Status("Ярлык создан на рабочем столе.");
+   }catch(Exception ex){MessageBox.Show("Не удалось создать ярлык: "+ex.Message,"Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+  }
   void ShowMain(){Show();WindowState=FormWindowState.Normal;Activate();}
   void Status(string value){
    if(state==null)return;
