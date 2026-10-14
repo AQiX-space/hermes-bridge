@@ -96,6 +96,41 @@ class Enrollment:
                     raise
             return {'auth_line':auth,'config':config,'dry_run':not apply,'backup':str(backup) if backup else None}
 
+    def revoke(self,ticket,apply=False,keys_file=None):
+        """Remove one approved device key; ticket is a server-side operator identifier."""
+        with self.db() as d:
+            r=d.execute("SELECT * FROM requests WHERE ticket=? AND status='approved'",(ticket,)).fetchone()
+            if r is None:raise ValueError('not an approved device')
+            config=json.loads(r['config'])
+            auth='restrict,port-forwarding,permitlisten="127.0.0.1:%s" %s' % (config['slot'],r['key'])
+            if not apply:return {'dry_run':True,'device':r['device'],'slot':config['slot']}
+            if keys_file is None:raise ValueError('authorized_keys path required')
+            target=Path(keys_file)
+            if target.is_symlink() or not target.is_file():raise ValueError('authorized_keys must be a regular file')
+            old=target.read_text()
+            rows=old.splitlines(keepends=True)
+            if sum(1 for line in rows if line.rstrip('\n')==auth)!=1:raise ValueError('device SSH authorization not found exactly once')
+            stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+            backup=Path(str(target)+'.backup-'+stamp)
+            shutil.copy2(target,backup)
+            info=target.stat()
+            fd,tmp=tempfile.mkstemp(prefix='.hermes-revoke-',dir=str(target.parent))
+            try:
+                if hasattr(os,'fchmod'):os.fchmod(fd,0o600)
+                if hasattr(os,'fchown'):os.fchown(fd,info.st_uid,info.st_gid)
+                with os.fdopen(fd,'w') as out:
+                    out.writelines(line for line in rows if line.rstrip('\n')!=auth)
+                os.replace(tmp,target)
+            finally:
+                if os.path.exists(tmp):os.unlink(tmp)
+            try:
+                d.execute("UPDATE requests SET status='revoked' WHERE ticket=? AND status='approved'",(ticket,))
+                d.commit()
+            except Exception:
+                shutil.copy2(backup,target)
+                raise
+            return {'dry_run':False,'device':r['device'],'slot':config['slot'],'backup':str(backup)}
+
 def handler(db):
     class Handler(BaseHTTPRequestHandler):
         def send(self,code,data):
@@ -119,9 +154,11 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--db',type=Path,required=True);sub=p.add_subparsers(dest='action',required=True)
     sub.add_parser('serve');sub.add_parser('pending')
     ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--slot',type=lambda v:None if v=='auto' else int(v),default=None,help='Reverse port 23000-24999, or auto (default)');ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
+    rp=sub.add_parser('revoke');rp.add_argument('--ticket',required=True);rp.add_argument('--apply',action='store_true');rp.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     a=p.parse_args();db=Enrollment(a.db)
     if a.action=='serve':ThreadingHTTPServer(('127.0.0.1',18511),handler(db)).serve_forever()
     elif a.action=='pending':
         with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created FROM requests WHERE status='pending' AND created>?",(int(time.time())-900,))]))
-    else:print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file),indent=2))
+    elif a.action=='approve':print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file),indent=2))
+    elif a.action=='revoke':print(json.dumps(db.revoke(a.ticket,a.apply,a.keys_file),indent=2))
 if __name__=='__main__':main()
