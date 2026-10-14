@@ -18,7 +18,7 @@ namespace HermesBridge {
   TextBox host=new TextBox(),port=new TextBox(),slot=new TextBox(),known=new TextBox(),device=new TextBox();
   NumericUpDown ttl=new NumericUpDown(); Label state=new Label(); Button start=new Button(),stop=new Button(),reload=new Button(),save=new Button(),import=new Button();
   NotifyIcon tray=new NotifyIcon(); System.Windows.Forms.Timer heartbeat=new System.Windows.Forms.Timer();
-  Process tunnel; DateTime deadline; bool running=false, quitting=false, updating=false, forwardConfirmed=false, enrolling=false, cancelEnrollment=false; string lastTunnelFailure="";
+  Process tunnel; DateTime deadline; bool running=false, quitting=false, updating=false, forwardConfirmed=false, enrolling=false, cancelEnrollment=false; int enrollmentGeneration=0; string lastTunnelFailure="";
   string Config {get{return Path.Combine(root,"client.ini");}}
   string Ssh {get{return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"OpenSSH","ssh.exe");}}
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
@@ -182,17 +182,18 @@ namespace HermesBridge {
    if(running||enrolling)return;
    if(!EnsureKey())return;
    if(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known)){StartBridge();return;}
-   enrolling=true;cancelEnrollment=false;Status("Отправляем заявку на доступ…");
-   bool enrollmentFailed=false;
+   enrolling=true;cancelEnrollment=false;int generation=++enrollmentGeneration;Status("Отправляем заявку на доступ…");
    try{
     Uri endpoint=new Uri(EnrollmentApi);
     EnrollmentTicket ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim());
+    if(generation!=enrollmentGeneration||cancelEnrollment)return;
     Status("Запрос отправлен. Ожидается разрешение оператора.");
     // Server expires pending tickets after 15 minutes; match that window.
     for(int i=0;i<300&&!cancelEnrollment;i++){
      await Task.Delay(3000);
      if(cancelEnrollment)break;
      EnrollmentResult answer=await EnrollmentClient.PollAsync(endpoint,ticket.ticket);
+     if(generation!=enrollmentGeneration||cancelEnrollment)return;
      if(answer.status=="approved"){
       EnrollmentClient.SaveApproved(answer.config,root);
       host.Text=answer.config.host;port.Text=answer.config.port.ToString();slot.Text=answer.config.slot.ToString();
@@ -202,8 +203,8 @@ namespace HermesBridge {
      if(answer.status=="expired"||answer.status=="denied")throw new InvalidOperationException("Регистрация отклонена или истекла.");
     }
     if(!cancelEnrollment)throw new TimeoutException("Истекло ожидание подтверждения оператора.");
-   }catch(Exception ex){enrollmentFailed=true;if(!cancelEnrollment)Status("Регистрация недоступна: "+ex.Message);}
-   finally{enrolling=false;if(cancelEnrollment)Status("Запрос отменён.");}
+   }catch(Exception ex){if(generation==enrollmentGeneration&&!cancelEnrollment)Status("Регистрация недоступна: "+ex.Message);}
+   finally{if(generation==enrollmentGeneration){enrolling=false;if(cancelEnrollment)Status("Запрос отменён.");}}
   }
   void StartBridge(){
    if(running)return;
@@ -254,7 +255,7 @@ namespace HermesBridge {
    retryAt=DateTime.UtcNow.AddSeconds(10);Launch();
   }
   void StopBridge(){
-   cancelEnrollment=true;enrolling=false;running=false;forwardConfirmed=false;lastTunnelFailure="";
+   cancelEnrollment=true;enrollmentGeneration++;enrolling=false;running=false;forwardConfirmed=false;lastTunnelFailure="";
    if(tunnel!=null){try{if(!tunnel.HasExited)tunnel.Kill();tunnel.Dispose();}catch{}tunnel=null;}
    Status("Остановлено. Локальный процесс туннеля завершён.");
   }
