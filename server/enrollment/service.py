@@ -34,9 +34,13 @@ class Enrollment:
             c.close()
     def submit(self,device,key):
         if not isinstance(device,str) or not re.fullmatch(r'[a-zA-Z0-9._-]{1,64}',device):raise ValueError('bad device')
-        key=public_key(key);ticket=secrets.token_urlsafe(32)
+        key=public_key(key)
         with self.db() as d:
             now=int(time.time())
+            # Reopening a Connector must not create a second request or consume the rate limit.
+            existing=d.execute('SELECT ticket FROM requests WHERE device=? AND key=? AND status=? AND created>? ORDER BY created DESC LIMIT 1',(device,key,'pending',now-900)).fetchone()
+            if existing:return existing['ticket']
+            ticket=secrets.token_urlsafe(32)
             # Bound anonymous submissions until the HTTPS reverse proxy enforces per-IP limits.
             recent=d.execute('SELECT COUNT(*) FROM requests WHERE device=? AND created>?',(device,now-900)).fetchone()[0]
             if recent>=3:raise OverflowError('registration rate limit')

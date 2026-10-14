@@ -18,10 +18,18 @@ with tempfile.TemporaryDirectory() as tmp:
    response=json.load(r);assert response['status']=='approved'
    assert response['config']['slot']==23011
    assert response['config']['hostkey']==key
-  for _ in range(2):
-   with urllib.request.urlopen(request,timeout=3) as r:assert r.status==202
+  # Same device/key reuses its current ticket, no duplicate pending requests.
+  with urllib.request.urlopen(request,timeout=3) as r:assert r.status==202 and json.load(r)['ticket']!=ticket
+  next_ticket=db.submit('AnotherPC',key)
+  assert db.submit('AnotherPC',key)==next_ticket
+  # Approved original key is not a pending ticket; only two new submissions remain allowed.
+  raw=base64.b64encode(b'\0\0\0\x0bssh-ed25519\0\0\0\x20'+bytes((i+2)%256 for i in range(32))).decode()
+  req=urllib.request.Request(api,json.dumps({'device':'TestPC','public_key':'ssh-ed25519 '+raw}).encode(),headers={'Content-Type':'application/json'})
+  with urllib.request.urlopen(req,timeout=3) as r:assert r.status==202
   try:
-   urllib.request.urlopen(request,timeout=3)
+   other=base64.b64encode(b'\0\0\0\x0bssh-ed25519\0\0\0\x20'+bytes((i+4)%256 for i in range(32))).decode()
+   req=urllib.request.Request(api,json.dumps({'device':'TestPC','public_key':'ssh-ed25519 '+other}).encode(),headers={'Content-Type':'application/json'})
+   urllib.request.urlopen(req,timeout=3)
    raise AssertionError('unbounded registration accepted')
   except urllib.error.HTTPError as e:assert e.code==429
   print('PASS HTTP enrollment request, pending poll, approved config, per-device rate limit')
