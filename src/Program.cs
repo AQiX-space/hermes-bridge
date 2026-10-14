@@ -183,6 +183,7 @@ namespace HermesBridge {
    if(!EnsureKey())return;
    if(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known)){StartBridge();return;}
    enrolling=true;cancelEnrollment=false;Status("Отправляем заявку на доступ…");
+   bool enrollmentFailed=false;
    try{
     Uri endpoint=new Uri(EnrollmentApi);
     EnrollmentTicket ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim());
@@ -200,8 +201,8 @@ namespace HermesBridge {
      if(answer.status=="expired"||answer.status=="denied")throw new InvalidOperationException("Регистрация отклонена или истекла.");
     }
     if(!cancelEnrollment)throw new TimeoutException("Истекло ожидание подтверждения оператора.");
-   }catch(Exception ex){if(!cancelEnrollment)Status("Регистрация недоступна: "+ex.Message);}
-   finally{enrolling=false;Status(cancelEnrollment?"Запрос отменён.":connectionInfo.Text);}
+   }catch(Exception ex){enrollmentFailed=true;if(!cancelEnrollment)Status("Регистрация недоступна: "+ex.Message);}
+   finally{enrolling=false;if(cancelEnrollment)Status("Запрос отменён.");else if(!enrollmentFailed)Status("Ожидание подтверждения завершено.");}
   }
   void StartBridge(){
    if(running)return;
