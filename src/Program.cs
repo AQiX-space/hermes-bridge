@@ -188,7 +188,8 @@ namespace HermesBridge {
     Uri endpoint=new Uri(EnrollmentApi);
     EnrollmentTicket ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim());
     Status("Запрос отправлен. Ожидается разрешение оператора.");
-    for(int i=0;i<100&&!cancelEnrollment;i++){
+    // Server expires pending tickets after 15 minutes; match that window.
+    for(int i=0;i<300&&!cancelEnrollment;i++){
      await Task.Delay(3000);
      if(cancelEnrollment)break;
      EnrollmentResult answer=await EnrollmentClient.PollAsync(endpoint,ticket.ticket);
@@ -202,7 +203,7 @@ namespace HermesBridge {
     }
     if(!cancelEnrollment)throw new TimeoutException("Истекло ожидание подтверждения оператора.");
    }catch(Exception ex){enrollmentFailed=true;if(!cancelEnrollment)Status("Регистрация недоступна: "+ex.Message);}
-   finally{enrolling=false;if(cancelEnrollment)Status("Запрос отменён.");else if(!enrollmentFailed)Status("Ожидание подтверждения завершено.");}
+   finally{enrolling=false;if(cancelEnrollment)Status("Запрос отменён.");}
   }
   void StartBridge(){
    if(running)return;
