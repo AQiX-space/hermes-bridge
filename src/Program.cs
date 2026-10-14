@@ -200,7 +200,7 @@ namespace HermesBridge {
       SaveSettings();enrolling=false;
       if(!cancelEnrollment)StartBridge();return;
      }
-     if(answer.status=="expired"||answer.status=="denied")throw new InvalidOperationException("Регистрация отклонена или истекла.");
+     if(answer.status=="expired"||answer.status=="denied"||answer.status=="revoked")throw new InvalidOperationException("Регистрация отклонена, отозвана или истекла.");
     }
     if(!cancelEnrollment)throw new TimeoutException("Истекло ожидание подтверждения оператора.");
    }catch(Exception ex){if(generation==enrollmentGeneration&&!cancelEnrollment)Status("Регистрация недоступна: "+ex.Message);}
