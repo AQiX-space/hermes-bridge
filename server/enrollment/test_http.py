@@ -18,5 +18,11 @@ with tempfile.TemporaryDirectory() as tmp:
    response=json.load(r);assert response['status']=='approved'
    assert response['config']['slot']==23011
    assert response['config']['hostkey']==key
-  print('PASS HTTP enrollment request, pending poll, approved config')
+  for _ in range(2):
+   with urllib.request.urlopen(request,timeout=3) as r:assert r.status==202
+  try:
+   urllib.request.urlopen(request,timeout=3)
+   raise AssertionError('unbounded registration accepted')
+  except urllib.error.HTTPError as e:assert e.code==429
+  print('PASS HTTP enrollment request, pending poll, approved config, per-device rate limit')
  finally:web.shutdown();web.server_close();thread.join(timeout=3)

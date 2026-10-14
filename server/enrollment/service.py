@@ -35,7 +35,12 @@ class Enrollment:
     def submit(self,device,key):
         if not isinstance(device,str) or not re.fullmatch(r'[a-zA-Z0-9._-]{1,64}',device):raise ValueError('bad device')
         key=public_key(key);ticket=secrets.token_urlsafe(32)
-        with self.db() as d:d.execute('INSERT INTO requests VALUES(?,?,?,?,?,?,?)',(ticket,device,key,int(time.time()),'pending',None,None))
+        with self.db() as d:
+            now=int(time.time())
+            # Bound anonymous submissions until the HTTPS reverse proxy enforces per-IP limits.
+            recent=d.execute('SELECT COUNT(*) FROM requests WHERE device=? AND created>?',(device,now-900)).fetchone()[0]
+            if recent>=3:raise OverflowError('registration rate limit')
+            d.execute('INSERT INTO requests VALUES(?,?,?,?,?,?,?)',(ticket,device,key,now,'pending',None,None))
         return ticket
     def poll(self,ticket):
         if not re.fullmatch(r'[a-zA-Z0-9_-]{40,60}',ticket):return {'status':'not_found'}
@@ -94,6 +99,7 @@ def handler(db):
                 if not 0<size<=4096:return self.send(413,{'error':'size'})
                 obj=json.loads(self.rfile.read(size));ticket=db.submit(obj['device'],obj['public_key'])
                 self.send(202,{'ticket':ticket,'status':'pending'})
+            except OverflowError:self.send(429,{'error':'too many requests'})
             except (ValueError,KeyError,TypeError):self.send(400,{'error':'invalid device key'})
         def do_GET(self):
             if not self.path.startswith('/v1/enroll/'):return self.send(404,{'error':'not found'})
