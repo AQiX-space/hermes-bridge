@@ -55,11 +55,15 @@ class Enrollment:
         if r['status']=='approved':result['config']=json.loads(r['config'])
         return result
     def approve(self,ticket,slot,host,hostkey,apply=False,keys_file=None):
-        if not 23000<=slot<=24999:raise ValueError('invalid slot')
+        if slot is not None and not 23000<=slot<=24999:raise ValueError('invalid slot')
         if not re.fullmatch(r'[A-Za-z0-9.-]{3,255}',host):raise ValueError('invalid host')
         with self.db() as d:
             r=d.execute('SELECT * FROM requests WHERE ticket=? AND status=?',(ticket,'pending')).fetchone()
             if not r or time.time()-r['created']>900:raise ValueError('not pending')
+            if slot is None:
+                used={x[0] for x in d.execute("SELECT slot FROM requests WHERE status='approved' AND slot IS NOT NULL")}
+                slot=next((candidate for candidate in range(23000,25000) if candidate not in used),None)
+                if slot is None:raise ValueError('no available reverse ports')
             if d.execute('SELECT 1 FROM requests WHERE status=? AND slot=?',('approved',slot)).fetchone():raise ValueError('slot already assigned')
             if d.execute('SELECT 1 FROM requests WHERE status=? AND key=?',('approved',r['key'])).fetchone():raise ValueError('key already registered')
             config={'host':host,'port':22471,'slot':slot,'hostkey':public_key(hostkey)}
@@ -114,7 +118,7 @@ def handler(db):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--db',type=Path,required=True);sub=p.add_subparsers(dest='action',required=True)
     sub.add_parser('serve');sub.add_parser('pending')
-    ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--slot',type=int,required=True);ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
+    ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--slot',type=lambda v:None if v=='auto' else int(v),default=None,help='Reverse port 23000-24999, or auto (default)');ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     a=p.parse_args();db=Enrollment(a.db)
     if a.action=='serve':ThreadingHTTPServer(('127.0.0.1',18511),handler(db)).serve_forever()
     elif a.action=='pending':

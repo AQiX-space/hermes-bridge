@@ -15,10 +15,19 @@ with tempfile.TemporaryDirectory() as d:
  assert 'permitlisten=\"127.0.0.1:23001\"' in auth.read_text()
  assert list(pathlib.Path(d).glob('authorized_keys.backup-*'))
  assert s.poll(t)['config']['slot']==23001
+ # Auto-allocation skips an already approved slot; dry run never consumes one.
+ auto_key='ssh-ed25519 '+base64.b64encode(b'\0\0\0\x0bssh-ed25519\0\0\0\x20'+bytes((i+11)%256 for i in range(32))).decode()
+ auto_ticket=s.submit('Temporary-Laptop',auto_key)
+ assert s.approve(auto_ticket,None,'router-mgmt.aqixnet.com',key)['config']['slot']==23000
+ assert s.poll(auto_ticket)=={'status':'pending'}
+ s.approve(auto_ticket,None,'router-mgmt.aqixnet.com',key,apply=True,keys_file=auth)
+ assert s.poll(auto_ticket)['config']['slot']==23000
+ next_auto='ssh-ed25519 '+base64.b64encode(b'\0\0\0\x0bssh-ed25519\0\0\0\x20'+bytes((i+12)%256 for i in range(32))).decode()
+ assert s.approve(s.submit('Another-Laptop',next_auto),None,'router-mgmt.aqixnet.com',key)['config']['slot']==23002
  second=s.submit('Miniko-clone',key)
  try:s.approve(second,23002,'router-mgmt.aqixnet.com',key,apply=True,keys_file=auth);raise Exception('duplicate device key accepted')
  except ValueError:pass
- assert auth.read_text().count('permitlisten=')==1
+ assert auth.read_text().count('permitlisten=')==2
  third_key='ssh-ed25519 '+base64.b64encode(b'\0\0\0\x0bssh-ed25519\0\0\0\x20'+bytes(reversed(range(32)))).decode()
  third=s.submit('Rollback-test',third_key)
  before=auth.read_bytes()
