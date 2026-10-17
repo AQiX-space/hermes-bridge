@@ -24,8 +24,8 @@ namespace HermesBridge {
   string Ssh {get{return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"OpenSSH","ssh.exe");}}
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
-  Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), updates=new Button(), shortcut=new Button(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button installSsh=new Button(), sshCheck=new Button(), uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); string sshVersion=null; bool updateAvailable=false; string activeMostCode="";
+  Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), shortcut=new Button(); LinkLabel updates=new LinkLabel(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(); string sshVersion=null; bool updateAvailable=false; string activeMostCode="";
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
    Text="Hermes Connector 0.2.0-beta.17"; Width=900;Height=605;MinimumSize=new Size(900,605);MaximumSize=new Size(900,605);StartPosition=FormStartPosition.CenterScreen;
@@ -41,7 +41,7 @@ namespace HermesBridge {
    start.Text="Подключить Гермеса";start.Left=22;start.Top=310;start.Width=408;start.Height=49;start.FlatStyle=FlatStyle.Flat;start.FlatAppearance.BorderSize=0;start.BackColor=Color.FromArgb(36,133,78);start.ForeColor=Color.White;start.Font=new Font("Segoe UI Semibold",12,FontStyle.Bold);Controls.Add(start);
    stop.Text="Отключить Гермеса";stop.Left=22;stop.Top=310;stop.Width=408;stop.Height=49;stop.FlatStyle=FlatStyle.Flat;stop.BackColor=Color.White;stop.ForeColor=Color.White;Controls.Add(stop);
    setup.Text="Настройки и регистрация  ▾";setup.Left=22;setup.Top=384;setup.Width=395;setup.Height=40;setup.FlatStyle=FlatStyle.Flat;setup.ForeColor=muted;Controls.Add(setup);
-   updates.Text="Проверить";updates.SetBounds(313,66,117,29);updates.FlatStyle=FlatStyle.Flat;updates.ForeColor=blue;Controls.Add(updates);
+   updates.Text="Проверить";updates.SetBounds(336,71,94,24);updates.TextAlign=ContentAlignment.MiddleRight;updates.LinkColor=blue;updates.ActiveLinkColor=blue;Controls.Add(updates);
    updates.Click+=async (s,e)=>await CheckAndInstallUpdateAsync(false);
    expiryInfo.Left=24;expiryInfo.Top=487;expiryInfo.Width=400;expiryInfo.Height=28;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
    advanced.Left=0;advanced.Top=505;advanced.Width=495;advanced.Height=280;advanced.Visible=false;Controls.Add(advanced);
@@ -62,9 +62,8 @@ namespace HermesBridge {
    setup.Visible=false;advanced.Visible=false;
    stop.BackColor=Color.FromArgb(176,56,56);stop.FlatAppearance.BorderSize=0;
    sshInfo.SetBounds(24,110,235,28);sshInfo.ForeColor=muted;Controls.Add(sshInfo);
-   installSsh.Text="Установить OpenSSH";installSsh.SetBounds(255,107,175,31);installSsh.FlatStyle=FlatStyle.Flat;Controls.Add(installSsh);
-   installSsh.Text="Установить";installSsh.SetBounds(342,107,88,31);
-   sshCheck.Text="Проверить";sshCheck.SetBounds(251,107,86,31);sshCheck.FlatStyle=FlatStyle.Flat;Controls.Add(sshCheck);
+   installSsh.Text="Установить";installSsh.SetBounds(334,113,96,25);installSsh.TextAlign=ContentAlignment.MiddleRight;installSsh.LinkColor=blue;Controls.Add(installSsh);
+   sshCheck.Text="Проверить";sshCheck.SetBounds(334,113,96,25);sshCheck.TextAlign=ContentAlignment.MiddleRight;sshCheck.LinkColor=blue;Controls.Add(sshCheck);
    sshCheck.Click+=(s,e)=>{sshVersion=null;UpdateSshState();Status("OpenSSH проверен.");};
    installSsh.Click+=(s,e)=>InstallOpenSsh();
    shortcut.Parent= this;shortcut.SetBounds(22,382,190,37);shortcut.Visible=true;
@@ -95,7 +94,7 @@ namespace HermesBridge {
   async System.Threading.Tasks.Task CheckAndInstallUpdateAsync(bool automatic){
    if(updating||quitting)return;
    if(running){if(!automatic)MessageBox.Show("Сначала отключи активный сеанс поддержки.","Обновление");return;}
-   updating=true;updates.Enabled=false;updates.Text="Проверка подписанного обновления…";
+   updating=true;updates.Enabled=false;updates.Text="Проверка…";
    try {
     GitHubUpdater.Release manifest=await GitHubUpdater.CheckAsync();
     updateAvailable=manifest!=null;
@@ -111,27 +110,31 @@ namespace HermesBridge {
    }catch(Exception ex){
     if(!automatic)MessageBox.Show(""+ex.Message,"Гермес Мост",MessageBoxButtons.OK,MessageBoxIcon.Warning);
     else updates.Text="Автообновление недоступно";
-   }finally{updating=false;updates.Enabled=true;if(!quitting)updates.Text=updateAvailable?"● Обновить":"Проверить";}
+   }finally{updating=false;updates.Enabled=true;if(!quitting)updates.Text=updateAvailable?"● Обновить":"Проверить";updates.LinkColor=updateAvailable?Color.FromArgb(36,133,78):blue;}
   }
   void UninstallConnector(){
-   if(MessageBox.Show("Удалить Connector, его локальные SSH-ключи, настройки и ярлык?\nСначала будет остановлен туннель. Действие необратимо; разрешение на Gate нужно отозвать отдельно.","Удаление Connector",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
+   if(MessageBox.Show("Окончательно удалить Connector и его локальные ключи, настройки, обновления и ярлык?\n\nТуннель отключится; серверное разрешение Hermes Gate нужно отозвать отдельно.","Удаление Hermes Connector",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
    try{
     string exe=System.Reflection.Assembly.GetExecutingAssembly().Location;
-    string link=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),"Hermes Connector.lnk");
-    StopBridge();
-    string cleanup=Path.Combine(Path.GetTempPath(),"hermes-uninstall-"+Guid.NewGuid().ToString("N")+".cmd");
-    // Delete exact Connector-owned files, not the user's Recycle Bin or other files.
-    string script="@echo off\r\n"+
-     "ping 127.0.0.1 -n 3 >nul\r\n"+
-     "del /f /q \""+exe+"\" 2>nul\r\n"+
-     "del /f /q \""+link+"\" 2>nul\r\n"+
-     "rmdir /s /q \""+root+"\" 2>nul\r\n"+
-     "del /f /q \"%~f0\"\r\n";
-    File.WriteAllText(cleanup,script,Encoding.Default);
-    Process.Start(new ProcessStartInfo("cmd.exe","/c \""+cleanup+"\""){UseShellExecute=false,CreateNoWindow=true});
+    string desktop=Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+    string link=Path.Combine(desktop,"Hermes Connector.lnk");
+    string expectedRoot=Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesBridge"));
+    if(!String.Equals(Path.GetFullPath(root).TrimEnd('\\'),expectedRoot.TrimEnd('\\'),StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("Неправильная папка приложения");
+    int ownPid=Process.GetCurrentProcess().Id;
+    // Detached helper waits for this process to EXIT before deleting its locked executable.
+    // Remove-Item deletes directly, NOT via the Recycle Bin; never empty the whole Bin.
+    string script=""+
+     "$pidToWait="+ownPid+";"+
+     "for($n=0;$n -lt 120;$n++){if(-not (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue)){break};Start-Sleep -Milliseconds 500};"+
+     "if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){exit 4};"+
+     "$targets=@("+PsLiteral(exe)+","+PsLiteral(link)+","+PsLiteral(expectedRoot)+");"+
+     "foreach($target in $targets){for($retry=0;$retry -lt 10;$retry++){try{Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop;break}catch{Start-Sleep -Milliseconds 500}}}";
+    string encoded=Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+    Process.Start(new ProcessStartInfo("powershell.exe","-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "+encoded){UseShellExecute=false,CreateNoWindow=true});
     quitting=true;Close();
-   }catch(Exception ex){MessageBox.Show("Ошибка удаления: "+ex.Message,"Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+   }catch(Exception ex){MessageBox.Show("Не удалось запустить удаление: "+ex.Message,"Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
   }
+  static string PsLiteral(string text){return "'"+text.Replace("'","''")+"'";}
   void AddLine(string title,TextBox t,ref int y){advanced.Controls.Add(new Label(){Text=title,Left=26,Top=y+4,Width=240});t.Left=270;t.Top=y;t.Width=189;advanced.Controls.Add(t);y+=34;}
   void EnsureDesktopShortcut(){
    try {
@@ -213,7 +216,7 @@ namespace HermesBridge {
     }catch{}
    }
    sshInfo.Text=installed?"OpenSSH: "+sshVersion:"OpenSSH: —";
-   installSsh.Enabled=!installed;sshCheck.Enabled=installed;
+   installSsh.Visible=!installed;sshCheck.Visible=installed;
   }
   void InstallOpenSsh(){
    try{
