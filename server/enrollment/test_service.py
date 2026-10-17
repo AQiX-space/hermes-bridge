@@ -72,6 +72,7 @@ with tempfile.TemporaryDirectory() as d:
  try:s.approve(third,23003,'router-mgmt.aqixnet.com',key,apply=True,keys_file=auth,code=s.code_for(third));raise Exception('DB failure not detected')
  except Exception as ex:assert 'simulate db failure' in str(ex)
  assert auth.read_bytes()==before, 'database failure left unauthorized device key behind'
+ with s.db() as conn:conn.execute('DROP TRIGGER refuse_approval')
  assert s.poll(third)=={'status':'pending'}
 
  try:s.submit('Bad',key+'\ncommand="evil"');raise Exception('bad key accepted')
