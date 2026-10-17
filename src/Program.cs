@@ -229,8 +229,19 @@ namespace HermesBridge {
    enrolling=true;cancelEnrollment=false;int generation=++enrollmentGeneration;Status("Отправляем заявку на доступ…");
    try{
     Uri endpoint=new Uri(EnrollmentApi);
-    EnrollmentTicket ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim());
-    if(generation!=enrollmentGeneration||cancelEnrollment)return;
+    EnrollmentTicket ticket=null;
+    while(ticket==null&&!cancelEnrollment&&generation==enrollmentGeneration){
+     try{ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim());}
+     catch(WebException ex){
+      var response=ex.Response as HttpWebResponse;
+      bool transient=response!=null&&(response.StatusCode==HttpStatusCode.ServiceUnavailable||(int)response.StatusCode==429||response.StatusCode==HttpStatusCode.BadGateway||response.StatusCode==HttpStatusCode.GatewayTimeout);
+      transient=transient||ex.Status==WebExceptionStatus.Timeout||ex.Status==WebExceptionStatus.ConnectFailure||ex.Status==WebExceptionStatus.NameResolutionFailure;
+      if(!transient)throw;
+      Status("МОСТ: сервер занят или недоступен. Повторяем запрос без нового нажатия…");
+      await Task.Delay(35000);
+     }
+    }
+    if(generation!=enrollmentGeneration||cancelEnrollment||ticket==null)return;
     Status("Код МОСТ: "+ticket.code+" · Назови его при подтверждении.");
     // Reuse the same request and code until approval/rejection/expiry. Transient HTTP
     // errors must NEVER create another registration or discard this ticket.
