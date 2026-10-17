@@ -338,7 +338,7 @@ namespace HermesBridge {
    if(!running)return;
    if(DateTime.UtcNow>=deadline){StopBridge();Status("Время сессии истекло; доступ закрыт.");return;}
    if(tunnel!=null&&!tunnel.HasExited)return;
-   if(tunnel!=null){forwardConfirmed=false;if(lastTunnelFailure.Length>0)Status(lastTunnelFailure+" Повторное подключение…");}
+   if(tunnel!=null){forwardConfirmed=false;Status(lastTunnelFailure.Length>0?lastTunnelFailure+" Повторное подключение…":"SSH-канал прерван. Повторное подключение…");}
    if(DateTime.UtcNow<retryAt)return;
    retryAt=DateTime.UtcNow.AddSeconds(10);Launch();
   }
