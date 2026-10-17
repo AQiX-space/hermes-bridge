@@ -25,7 +25,7 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), updates=new Button(), shortcut=new Button(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button installSsh=new Button(), closeApp=new Button(), copyLog=new Button(); string sshVersion=null; string activeMostCode=""; bool updateAvailable=false;
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button installSsh=new Button(), sshCheck=new Button(), uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); string sshVersion=null; bool updateAvailable=false; string activeMostCode=""; bool updateAvailable=false;
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
    Text="Hermes Connector 0.2.0-beta.16"; Width=900;Height=605;MinimumSize=new Size(900,605);MaximumSize=new Size(900,605);StartPosition=FormStartPosition.CenterScreen;
@@ -41,7 +41,7 @@ namespace HermesBridge {
    start.Text="Подключить Гермеса";start.Left=22;start.Top=310;start.Width=408;start.Height=49;start.FlatStyle=FlatStyle.Flat;start.FlatAppearance.BorderSize=0;start.BackColor=Color.FromArgb(36,133,78);start.ForeColor=Color.White;start.Font=new Font("Segoe UI Semibold",12,FontStyle.Bold);Controls.Add(start);
    stop.Text="Отключить Гермеса";stop.Left=22;stop.Top=310;stop.Width=408;stop.Height=49;stop.FlatStyle=FlatStyle.Flat;stop.BackColor=Color.White;stop.ForeColor=Color.White;Controls.Add(stop);
    setup.Text="Настройки и регистрация  ▾";setup.Left=22;setup.Top=384;setup.Width=395;setup.Height=40;setup.FlatStyle=FlatStyle.Flat;setup.ForeColor=muted;Controls.Add(setup);
-   updates.Text="Проверить обновления ↗";updates.Left=22;updates.Top=307;updates.Width=395;updates.Height=34;updates.FlatStyle=FlatStyle.Flat;updates.ForeColor=blue;Controls.Add(updates);
+   updates.Text="Проверить";updates.SetBounds(313,66,117,29);updates.FlatStyle=FlatStyle.Flat;updates.ForeColor=blue;Controls.Add(updates);
    updates.Click+=async (s,e)=>await CheckAndInstallUpdateAsync(false);
    expiryInfo.Left=24;expiryInfo.Top=487;expiryInfo.Width=400;expiryInfo.Height=28;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
    advanced.Left=0;advanced.Top=505;advanced.Width=495;advanced.Height=280;advanced.Visible=false;Controls.Add(advanced);
@@ -63,6 +63,9 @@ namespace HermesBridge {
    stop.BackColor=Color.FromArgb(176,56,56);stop.FlatAppearance.BorderSize=0;
    sshInfo.SetBounds(24,110,235,28);sshInfo.ForeColor=muted;Controls.Add(sshInfo);
    installSsh.Text="Установить OpenSSH";installSsh.SetBounds(255,107,175,31);installSsh.FlatStyle=FlatStyle.Flat;Controls.Add(installSsh);
+   installSsh.Text="Установить";installSsh.SetBounds(342,107,88,31);
+   sshCheck.Text="Проверить";sshCheck.SetBounds(251,107,86,31);sshCheck.FlatStyle=FlatStyle.Flat;Controls.Add(sshCheck);
+   sshCheck.Click+=(s,e)=>{sshVersion=null;UpdateSshState();Status("OpenSSH проверен.");};
    installSsh.Click+=(s,e)=>InstallOpenSsh();
    shortcut.Parent= this;shortcut.SetBounds(22,382,190,37);shortcut.Visible=true;
    closeApp.Text="Закрыть Connector";closeApp.SetBounds(223,382,207,37);closeApp.Click+=(s,e)=>{StopBridge();quitting=true;Close();};Controls.Add(closeApp);
@@ -73,6 +76,8 @@ namespace HermesBridge {
    ttl.Parent=this;ttl.SetBounds(293,456,75,28);ttl.Minimum=5;ttl.Maximum=1440;ttl.Value=60;ttl.Enabled=false;
    autoDisconnect.CheckedChanged+=(sender,e)=>{ttl.Enabled=autoDisconnect.Checked;if(running)deadline=autoDisconnect.Checked?DateTime.UtcNow.AddMinutes((double)ttl.Value):DateTime.MaxValue;Status("Настройки таймера изменены.");};
    Controls.Add(new Label(){Text="мин",Left=375,Top=460,Width=45});
+   uninstall.Text="Полностью удалить Connector";uninstall.SetBounds(22,530,408,28);uninstall.FlatStyle=FlatStyle.Flat;uninstall.ForeColor=Color.FromArgb(176,56,56);Controls.Add(uninstall);
+   uninstall.Click+=(s,e)=>UninstallConnector();
    UpdateSshState();
    Icon=System.Drawing.Icon.ExtractAssociatedIcon(System.Reflection.Assembly.GetExecutingAssembly().Location);tray.Icon=Icon;tray.Text="Hermes Connector";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();tray.BalloonTipTitle="Hermes Connector";tray.BalloonTipText="Работает в области уведомлений. Двойной щелчок открывает окно.";
    connectedTrayIcon=MakeConnectedTrayIcon(Icon);
@@ -93,7 +98,9 @@ namespace HermesBridge {
    updating=true;updates.Enabled=false;updates.Text="Проверка подписанного обновления…";
    try {
     GitHubUpdater.Release manifest=await GitHubUpdater.CheckAsync();
-    if(manifest==null){if(!automatic)MessageBox.Show("Новых подписанных обновлений нет.","Гермес Мост");return;}
+    updateAvailable=manifest!=null;
+    if(manifest==null){if(!automatic)Status("Установлена актуальная версия Connector.");return;}
+    if(automatic){Status("Доступна версия "+manifest.tagName+". Нажми «Обновить».");return;}
     if(running||quitting)return;
     if(!automatic && MessageBox.Show("Доступна версия "+manifest.tagName+". Установить?","Гермес Мост",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
     updates.Text="Загрузка и проверка обновления…";
@@ -104,7 +111,7 @@ namespace HermesBridge {
    }catch(Exception ex){
     if(!automatic)MessageBox.Show(""+ex.Message,"Гермес Мост",MessageBoxButtons.OK,MessageBoxIcon.Warning);
     else updates.Text="Автообновление недоступно";
-   }finally{updating=false;updates.Enabled=true;if(!quitting)updates.Text="Проверить обновления";}
+   }finally{updating=false;updates.Enabled=true;if(!quitting)updates.Text=updateAvailable?"● Обновить":"Проверить";}
   }
   void AddLine(string title,TextBox t,ref int y){advanced.Controls.Add(new Label(){Text=title,Left=26,Top=y+4,Width=240});t.Left=270;t.Top=y;t.Width=189;advanced.Controls.Add(t);y+=34;}
   void EnsureDesktopShortcut(){
@@ -187,7 +194,7 @@ namespace HermesBridge {
     }catch{}
    }
    sshInfo.Text=installed?"OpenSSH: "+sshVersion:"OpenSSH: —";
-   installSsh.Enabled=!installed;
+   installSsh.Enabled=!installed;sshCheck.Enabled=installed;
   }
   void InstallOpenSsh(){
    try{
