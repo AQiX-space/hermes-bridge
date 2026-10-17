@@ -24,23 +24,24 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), updates=new Button(), shortcut=new Button(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button installSsh=new Button(), closeApp=new Button(), copyLog=new Button();
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
-   Text="Hermes Connector 0.2.0-beta.11"; Width=520;Height=535;MinimumSize=new Size(520,535);MaximumSize=new Size(520,865);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.2.0-beta.12"; Width=870;Height=510;MinimumSize=new Size(870,510);MaximumSize=new Size(870,510);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
-   Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=430,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="Версия 0.2.0-beta.11 · Доступ только с разрешения",ForeColor=muted,Left=28,Top=66,Width=435,Height=27};Controls.Add(subtitle);
-   Panel card=new Panel(){Left=22,Top=110,Width=455,Height=140,BackColor=surface};Controls.Add(card);
-   state.Left=17;state.Top=16;state.Width=417;state.Height=42;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
-   connectionInfo.Left=18;connectionInfo.Top=66;connectionInfo.Width=417;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
-   deviceInfo.Left=18;deviceInfo.Top=101;deviceInfo.Width=420;deviceInfo.Height=28;deviceInfo.ForeColor=muted;card.Controls.Add(deviceInfo);
-   start.Text="Подключить Гермеса";start.Left=22;start.Top=266;start.Width=455;start.Height=49;start.FlatStyle=FlatStyle.Flat;start.FlatAppearance.BorderSize=0;start.BackColor=blue;start.ForeColor=Color.White;start.Font=new Font("Segoe UI Semibold",12,FontStyle.Bold);Controls.Add(start);
-   stop.Text="Отключить доступ";stop.Left=22;stop.Top=327;stop.Width=455;stop.Height=43;stop.FlatStyle=FlatStyle.Flat;stop.BackColor=Color.White;stop.ForeColor=ink;Controls.Add(stop);
-   setup.Text="Настройки и регистрация  ▾";setup.Left=22;setup.Top=384;setup.Width=455;setup.Height=40;setup.FlatStyle=FlatStyle.Flat;setup.ForeColor=muted;Controls.Add(setup);
-   updates.Text="Проверить обновления ↗";updates.Left=22;updates.Top=430;updates.Width=455;updates.Height=34;updates.FlatStyle=FlatStyle.Flat;updates.ForeColor=blue;Controls.Add(updates);
+   Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=385,Height=42};Controls.Add(heading);
+   subtitle=new Label(){Text="Версия 0.2.0-beta.12 · Доступ с разрешения",ForeColor=muted,Left=28,Top=66,Width=385,Height=27};Controls.Add(subtitle);
+   Panel card=new Panel(){Left=22,Top=110,Width=395,Height=118,BackColor=surface};Controls.Add(card);
+   state.Left=17;state.Top=16;state.Width=370;state.Height=42;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
+   connectionInfo.Left=18;connectionInfo.Top=66;connectionInfo.Width=365;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
+   deviceInfo.Left=18;deviceInfo.Top=101;deviceInfo.Width=365;deviceInfo.Height=28;deviceInfo.ForeColor=muted;card.Controls.Add(deviceInfo);
+   start.Text="Подключить Гермеса";start.Left=22;start.Top=246;start.Width=395;start.Height=49;start.FlatStyle=FlatStyle.Flat;start.FlatAppearance.BorderSize=0;start.BackColor=blue;start.ForeColor=Color.White;start.Font=new Font("Segoe UI Semibold",12,FontStyle.Bold);Controls.Add(start);
+   stop.Text="Отключить Гермеса";stop.Left=22;stop.Top=246;stop.Width=395;stop.Height=49;stop.FlatStyle=FlatStyle.Flat;stop.BackColor=Color.White;stop.ForeColor=ink;Controls.Add(stop);
+   setup.Text="Настройки и регистрация  ▾";setup.Left=22;setup.Top=384;setup.Width=395;setup.Height=40;setup.FlatStyle=FlatStyle.Flat;setup.ForeColor=muted;Controls.Add(setup);
+   updates.Text="Проверить обновления ↗";updates.Left=22;updates.Top=307;updates.Width=395;updates.Height=34;updates.FlatStyle=FlatStyle.Flat;updates.ForeColor=blue;Controls.Add(updates);
    updates.Click+=async (s,e)=>await CheckAndInstallUpdateAsync(false);
-   expiryInfo.Left=25;expiryInfo.Top=469;expiryInfo.Width=440;expiryInfo.Height=28;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
+   expiryInfo.Left=25;expiryInfo.Top=440;expiryInfo.Width=390;expiryInfo.Height=28;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
    advanced.Left=0;advanced.Top=505;advanced.Width=495;advanced.Height=280;advanced.Visible=false;Controls.Add(advanced);
    int y=5;AddLine("Устройство",device,ref y);AddLine("Сервер",host,ref y);AddLine("Порт сервера",port,ref y);AddLine("Порт сессии",slot,ref y);
    ttl.Minimum=5;ttl.Maximum=240;ttl.Value=60;ttl.Left=270;ttl.Top=y;ttl.Width=90;
@@ -56,7 +57,17 @@ namespace HermesBridge {
    keyCopy.Click+=(s,e)=>{if(EnsureKey()){Clipboard.SetText(File.ReadAllText(Key+".pub"));Status("Ключ скопирован. Нужна регистрация на шлюзе.");}};
    import.Click+=(s,e)=>ImportProvision();save.Click+=(s,e)=>SaveSettings();reload.Click+=(s,e)=>{StopBridge();LoadSettings();};
    start.Click+=async (s,e)=>await StartOrEnrollAsync();stop.Click+=(s,e)=>StopBridge();
-   setup.Click+=(s,e)=>{advanced.Visible=!advanced.Visible;setup.Text=advanced.Visible?"Скрыть настройки  ▴":"Настройки и регистрация  ▾";Height=advanced.Visible?865:535;};
+   setup.Visible=false;advanced.Visible=false;
+   stop.BackColor=Color.FromArgb(246,230,216);stop.FlatAppearance.BorderSize=0;
+   sshInfo.SetBounds(24,350,235,28);sshInfo.ForeColor=muted;Controls.Add(sshInfo);
+   installSsh.Text="Установить OpenSSH";installSsh.SetBounds(255,345,162,31);installSsh.FlatStyle=FlatStyle.Flat;Controls.Add(installSsh);
+   installSsh.Click+=(s,e)=>InstallOpenSsh();
+   shortcut.Parent= this;shortcut.SetBounds(22,387,190,37);shortcut.Visible=true;
+   closeApp.Text="Закрыть Connector";closeApp.SetBounds(223,387,194,37);closeApp.Click+=(s,e)=>{StopBridge();quitting=true;Close();};Controls.Add(closeApp);
+   Label logTitle=new Label(){Text="Журнал действий",Left=450,Top=35,Width=375,Height=28,Font=new Font("Segoe UI Semibold",13,FontStyle.Bold)};Controls.Add(logTitle);
+   actionLog.SetBounds(450,72,384,343);actionLog.Multiline=true;actionLog.ScrollBars=ScrollBars.Vertical;actionLog.ReadOnly=true;actionLog.BackColor=surface;actionLog.ForeColor=ink;actionLog.Font=new Font("Consolas",9);Controls.Add(actionLog);
+   copyLog.Text="Копировать журнал";copyLog.SetBounds(650,427,184,30);copyLog.Click+=(s,e)=>Clipboard.SetText(actionLog.Text);Controls.Add(copyLog);
+   UpdateSshState();
    Icon=System.Drawing.Icon.ExtractAssociatedIcon(System.Reflection.Assembly.GetExecutingAssembly().Location);tray.Icon=Icon;tray.Text="Hermes Connector";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();tray.BalloonTipTitle="Hermes Connector";tray.BalloonTipText="Работает в области уведомлений. Двойной щелчок открывает окно.";
    ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());menu.Items.Add("Подключить",null,async (s,e)=>await StartOrEnrollAsync());menu.Items.Add("Отключить",null,(s,e)=>StopBridge());menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
    // Automatic updates only while remote support is disconnected. Signed manifest required.
@@ -127,7 +138,25 @@ namespace HermesBridge {
    connectionInfo.Text=value;
    deviceInfo.Text="Компьютер: "+(device.Text.Trim().Length>0?device.Text.Trim():Environment.MachineName);
    expiryInfo.Text=running?"Автоматическое отключение: "+deadline.ToLocalTime().ToString("HH:mm"):"Закрытие окна оставит программу в трее";
-   start.Enabled=!running&&!enrolling;stop.Enabled=running||enrolling;
+   start.Visible=!running&&!enrolling;stop.Visible=running||enrolling;start.Enabled=!running&&!enrolling;stop.Enabled=running||enrolling;
+   UpdateSshState();LogAction(value);
+  }
+  void LogAction(string message){
+   if(String.IsNullOrWhiteSpace(message)||actionLog.IsDisposed)return;
+   if(actionLog.TextLength>24000)actionLog.Text=actionLog.Text.Substring(actionLog.TextLength-12000);
+   actionLog.AppendText(DateTime.Now.ToString("HH:mm:ss")+"  "+message+Environment.NewLine);
+  }
+  void UpdateSshState(){
+   string sshExe=Ssh;
+   sshInfo.Text=File.Exists(sshExe)?"OpenSSH: установлен":"OpenSSH: отсутствует";
+   installSsh.Enabled=!File.Exists(sshExe);
+  }
+  void InstallOpenSsh(){
+   try{
+    if(MessageBox.Show("Установить компонент Windows OpenSSH Client? Потребуются права администратора.","Hermes Connector",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
+    var ps=new ProcessStartInfo("powershell.exe","-NoProfile -Command "Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0"");ps.UseShellExecute=true;ps.Verb="runas";Process.Start(ps);
+    Status("Установка OpenSSH запущена. После завершения нажми «Подключить».");
+   }catch(Exception ex){Status("Не удалось запустить установку OpenSSH: "+ex.Message);}
   }
   void LoadSettings(){
    device.Text=Environment.MachineName;host.Text="";port.Text="22471";slot.Text="";known.Text=Known;ttl.Value=60;
@@ -136,7 +165,7 @@ namespace HermesBridge {
     if(name=="device")device.Text=value;if(name=="host")host.Text=value;if(name=="port")port.Text=value;if(name=="slot")slot.Text=value;
     int n;if(name=="ttl"&&int.TryParse(value,out n))ttl.Value=Math.Max(5,Math.Min(240,n));
    }}
-   Status("Для подключения потребуется одобрение и регистрация устройства.");
+   Status("Нажми «Подключить Гермеса» для запроса доступа.");
   }
   void SaveSettings(){
    if(!Valid(false))return;
@@ -187,7 +216,7 @@ namespace HermesBridge {
     Uri endpoint=new Uri(EnrollmentApi);
     EnrollmentTicket ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim());
     if(generation!=enrollmentGeneration||cancelEnrollment)return;
-    Status("Запрос отправлен. Ожидается разрешение оператора.");
+    Status("Код МОСТ: "+ticket.code+" · Назови его при подтверждении.");
     // Server expires pending tickets after 15 minutes; match that window.
     for(int i=0;i<300&&!cancelEnrollment;i++){
      await Task.Delay(3000);

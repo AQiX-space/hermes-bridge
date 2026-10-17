@@ -21,6 +21,7 @@ class Enrollment:
             d.execute('CREATE TABLE IF NOT EXISTS requests(ticket TEXT PRIMARY KEY,device TEXT,key TEXT,created INTEGER,status TEXT,slot INTEGER,config TEXT)')
             d.execute("CREATE UNIQUE INDEX IF NOT EXISTS approved_slots ON requests(slot) WHERE status='approved'")
             d.execute("CREATE UNIQUE INDEX IF NOT EXISTS approved_keys ON requests(key) WHERE status='approved'")
+            if not any(c[1]=='code' for c in d.execute('PRAGMA table_info(requests)')):d.execute('ALTER TABLE requests ADD COLUMN code TEXT')
     @contextmanager
     def db(self):
         c=sqlite3.connect(self.path,timeout=15);c.row_factory=sqlite3.Row
@@ -44,8 +45,15 @@ class Enrollment:
             # Bound anonymous submissions until the HTTPS reverse proxy enforces per-IP limits.
             recent=d.execute('SELECT COUNT(*) FROM requests WHERE device=? AND created>?',(device,now-900)).fetchone()[0]
             if recent>=3:raise OverflowError('registration rate limit')
-            d.execute('INSERT INTO requests VALUES(?,?,?,?,?,?,?)',(ticket,device,key,now,'pending',None,None))
+            alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+            code=''.join(secrets.choice(alphabet) for _ in range(5))
+            while d.execute("SELECT 1 FROM requests WHERE code=? AND status='pending' AND created>?",(code,now-900)).fetchone():code=''.join(secrets.choice(alphabet) for _ in range(5))
+            d.execute('INSERT INTO requests(ticket,device,key,created,status,slot,config,code) VALUES(?,?,?,?,?,?,?,?)',(ticket,device,key,now,'pending',None,None,code))
         return ticket
+    def code_for(self,ticket):
+        with self.db() as d:
+            r=d.execute('SELECT code FROM requests WHERE ticket=?',(ticket,)).fetchone()
+            return r['code'] if r else None
     def poll(self,ticket):
         if not re.fullmatch(r'[a-zA-Z0-9_-]{40,60}',ticket):return {'status':'not_found'}
         with self.db() as d:r=d.execute('SELECT * FROM requests WHERE ticket=?',(ticket,)).fetchone()
@@ -54,12 +62,13 @@ class Enrollment:
         result={'status':r['status']}
         if r['status']=='approved':result['config']=json.loads(r['config'])
         return result
-    def approve(self,ticket,slot,host,hostkey,apply=False,keys_file=None):
+    def approve(self,ticket,slot,host,hostkey,apply=False,keys_file=None,code=None):
         if slot is not None and not 23000<=slot<=24999:raise ValueError('invalid slot')
         if not re.fullmatch(r'[A-Za-z0-9.-]{3,255}',host):raise ValueError('invalid host')
         with self.db() as d:
             r=d.execute('SELECT * FROM requests WHERE ticket=? AND status=?',(ticket,'pending')).fetchone()
             if not r or time.time()-r['created']>900:raise ValueError('not pending')
+            if not r['code'] or code!=r['code']:raise ValueError('matching five-character confirmation code required')
             if slot is None:
                 used={x[0] for x in d.execute("SELECT slot FROM requests WHERE status='approved' AND slot IS NOT NULL")}
                 slot=next((candidate for candidate in range(23000,25000) if candidate not in used),None)
@@ -141,7 +150,7 @@ def handler(db):
                 size=int(self.headers.get('Content-Length','0'))
                 if not 0<size<=4096:return self.send(413,{'error':'size'})
                 obj=json.loads(self.rfile.read(size));ticket=db.submit(obj['device'],obj['public_key'])
-                self.send(202,{'ticket':ticket,'status':'pending'})
+                self.send(202,{'ticket':ticket,'status':'pending','code':db.code_for(ticket)})
             except OverflowError:self.send(429,{'error':'too many requests'})
             except (ValueError,KeyError,TypeError):self.send(400,{'error':'invalid device key'})
         def do_GET(self):
@@ -153,12 +162,12 @@ def handler(db):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--db',type=Path,required=True);sub=p.add_subparsers(dest='action',required=True)
     sub.add_parser('serve');sub.add_parser('pending')
-    ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--slot',type=lambda v:None if v=='auto' else int(v),default=None,help='Reverse port 23000-24999, or auto (default)');ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
+    ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--code',required=True,help='Five-character code shown in Connector');ap.add_argument('--slot',type=lambda v:None if v=='auto' else int(v),default=None,help='Reverse port 23000-24999, or auto (default)');ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     rp=sub.add_parser('revoke');rp.add_argument('--ticket',required=True);rp.add_argument('--apply',action='store_true');rp.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     a=p.parse_args();db=Enrollment(a.db)
     if a.action=='serve':ThreadingHTTPServer(('127.0.0.1',18511),handler(db)).serve_forever()
     elif a.action=='pending':
-        with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created FROM requests WHERE status='pending' AND created>?",(int(time.time())-900,))]))
-    elif a.action=='approve':print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file),indent=2))
+        with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created,code FROM requests WHERE status='pending' AND created>?",(int(time.time())-900,))]))
+    elif a.action=='approve':print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file,code=a.code),indent=2))
     elif a.action=='revoke':print(json.dumps(db.revoke(a.ticket,a.apply,a.keys_file),indent=2))
 if __name__=='__main__':main()

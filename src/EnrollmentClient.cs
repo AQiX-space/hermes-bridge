@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 
 namespace HermesBridge {
- public class EnrollmentTicket {public string ticket{get;set;}public string status{get;set;}}
+ public class EnrollmentTicket {public string ticket{get;set;}public string status{get;set;}public string code{get;set;}}
  public class EnrollmentResult {public string status{get;set;}public EnrollmentConfig config{get;set;}}
  public class EnrollmentConfig {public string host{get;set;}public int port{get;set;}public int slot{get;set;}public string hostkey{get;set;}}
  public static class EnrollmentClient {
@@ -32,7 +32,7 @@ namespace HermesBridge {
     using(var st=req.GetRequestStream())st.Write(payload,0,payload.Length);
     using(var res=(HttpWebResponse)req.GetResponse())using(var reader=new StreamReader(res.GetResponseStream())){
      var r=Parser.Deserialize<EnrollmentTicket>(reader.ReadToEnd());
-     if(res.StatusCode!=HttpStatusCode.Accepted||r==null||r.status!="pending"||!Regex.IsMatch(r.ticket??"",@"^[a-zA-Z0-9_-]{40,60}$"))throw new InvalidDataException("Enrollment response invalid");
+     if(res.StatusCode!=HttpStatusCode.Accepted||r==null||r.status!="pending"||!Regex.IsMatch(r.ticket??"",@"^[a-zA-Z0-9_-]{40,60}$")||!Regex.IsMatch(r.code??"",@"^[A-HJ-NP-Z2-9]{5}$"))throw new InvalidDataException("Enrollment response invalid");
      return r;
     }
    });
