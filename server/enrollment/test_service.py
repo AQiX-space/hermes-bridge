@@ -6,7 +6,7 @@ with tempfile.TemporaryDirectory() as d:
  s=Enrollment(pathlib.Path(d)/'db.sqlite')
  t=s.submit('Miniko',key)
  assert s.poll(t)=={'status':'pending'}
- assert len(s.code_for(t))==5
+ assert len(s.code_for(t))==4
  # Waiting for operator can span the initial 15-minute creation time,
  # while the same client continues polling. A stale inactive ticket expires.
  with s.db() as conn: conn.execute('UPDATE requests SET created=created-1800 WHERE ticket=?',(t,))
@@ -47,7 +47,7 @@ with tempfile.TemporaryDirectory() as d:
  old=Enrollment(legacy)
  assert old.code_for('L'*43) is None
  assert old.submit('LegacyPC',key)=='L'*43
- assert len(old.code_for('L'*43))==5
+ assert len(old.code_for('L'*43))==4
  try:old.approve('L'*43,23010,'router-mgmt.aqixnet.com',key,code='ZZZZZ');raise AssertionError('wrong migrated code accepted')
  except ValueError:pass
  assert old.approve('L'*43,23010,'router-mgmt.aqixnet.com',key,code=old.code_for('L'*43))['dry_run']

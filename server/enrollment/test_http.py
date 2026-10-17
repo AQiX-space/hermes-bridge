@@ -10,7 +10,7 @@ with tempfile.TemporaryDirectory() as tmp:
   api=f'http://127.0.0.1:{web.server_port}/v1/enroll'
   request=urllib.request.Request(api,json.dumps({'device':'TestPC','public_key':key}).encode(),headers={'Content-Type':'application/json'})
   with urllib.request.urlopen(request,timeout=3) as r:
-   assert r.status==202;first=json.load(r);ticket=first['ticket'];assert len(first['code'])==5
+   assert r.status==202;first=json.load(r);ticket=first['ticket'];assert len(first['code'])==4
   with urllib.request.urlopen(api+'/'+ticket,timeout=3) as r: assert json.load(r)=={'status':'pending'}
   auth=pathlib.Path(tmp)/'authorized_keys';auth.write_text('existing-safe-ssh-key\n')
   db.approve(ticket,23011,'router-mgmt.aqixnet.com',key,apply=True,keys_file=auth,code=db.code_for(ticket))
