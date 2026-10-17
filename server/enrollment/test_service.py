@@ -30,6 +30,19 @@ with tempfile.TemporaryDirectory() as d:
  assert 'permitlisten="127.0.0.1:23001"' not in auth.read_text()
  try:s.revoke(t,apply=True,keys_file=auth);raise Exception('revocation replay accepted')
  except ValueError:pass
+ # Migration from older broker DB must not lose tickets or accept an approval without code.
+ import sqlite3, time
+ legacy=pathlib.Path(d)/'oldbroker.sqlite'
+ with sqlite3.connect(legacy) as db:
+  db.execute('CREATE TABLE requests(ticket TEXT PRIMARY KEY,device TEXT,key TEXT,created INTEGER,status TEXT,slot INTEGER,config TEXT)')
+  db.execute('INSERT INTO requests VALUES(?,?,?,?,?,?,?)',('L'*43,'LegacyPC',key,int(time.time()),'pending',None,None))
+ old=Enrollment(legacy)
+ assert old.code_for('L'*43) is None
+ assert old.submit('LegacyPC',key)=='L'*43
+ assert len(old.code_for('L'*43))==5
+ try:old.approve('L'*43,23010,'router-mgmt.aqixnet.com',key,code='ZZZZZ');raise AssertionError('wrong migrated code accepted')
+ except ValueError:pass
+ assert old.approve('L'*43,23010,'router-mgmt.aqixnet.com',key,code=old.code_for('L'*43))['dry_run']
  # Auto-allocation skips an already approved slot; dry run never consumes one.
  auto_key='ssh-ed25519 '+base64.b64encode(b'\0\0\0\x0bssh-ed25519\0\0\0\x20'+bytes((i+11)%256 for i in range(32))).decode()
  auto_ticket=s.submit('Temporary-Laptop',auto_key)
