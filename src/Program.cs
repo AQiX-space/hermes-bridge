@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Net;
 using System.Text;
 using System.Linq;
 using System.Diagnostics;
@@ -231,11 +232,23 @@ namespace HermesBridge {
     EnrollmentTicket ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim());
     if(generation!=enrollmentGeneration||cancelEnrollment)return;
     Status("Код МОСТ: "+ticket.code+" · Назови его при подтверждении.");
-    // Server expires pending tickets after 15 minutes; match that window.
-    for(int i=0;i<300&&!cancelEnrollment;i++){
-     await Task.Delay(3000);
-     if(cancelEnrollment)break;
-     EnrollmentResult answer=await EnrollmentClient.PollAsync(endpoint,ticket.ticket);
+    // Reuse the same request and code until approval/rejection/expiry. Transient HTTP
+    // errors must NEVER create another registration or discard this ticket.
+    while(!cancelEnrollment&&generation==enrollmentGeneration){
+     await Task.Delay(35000); // Production reverse proxy currently allows 2 requests/min/IP.
+     if(cancelEnrollment||generation!=enrollmentGeneration)return;
+     EnrollmentResult answer;
+     try{answer=await EnrollmentClient.PollAsync(endpoint,ticket.ticket);}
+     catch(WebException ex){
+      var response=ex.Response as HttpWebResponse;
+      if(response!=null&&(response.StatusCode==HttpStatusCode.ServiceUnavailable||response.StatusCode==HttpStatusCode.TooManyRequests||response.StatusCode==HttpStatusCode.BadGateway||response.StatusCode==HttpStatusCode.GatewayTimeout)){
+       Status("Код МОСТ: "+ticket.code+" · Сервер временно занят, повторяем проверку…");continue;
+      }
+      if(ex.Status==WebExceptionStatus.Timeout||ex.Status==WebExceptionStatus.ConnectFailure||ex.Status==WebExceptionStatus.NameResolutionFailure){
+       Status("Код МОСТ: "+ticket.code+" · Нет связи, ожидаем восстановления…");continue;
+      }
+      throw;
+     }
      if(generation!=enrollmentGeneration||cancelEnrollment)return;
      if(answer.status=="approved"){
       EnrollmentClient.SaveApproved(answer.config,root);
@@ -243,9 +256,10 @@ namespace HermesBridge {
       SaveSettings();enrolling=false;
       if(!cancelEnrollment)StartBridge();return;
      }
-     if(answer.status=="expired"||answer.status=="denied"||answer.status=="revoked")throw new InvalidOperationException("Регистрация отклонена, отозвана или истекла.");
+     if(answer.status=="expired"||answer.status=="denied"||answer.status=="revoked"){
+      throw new InvalidOperationException("Заявка завершена сервером: "+answer.status+". Для новой заявки нажми «Подключить».");
+     }
     }
-    if(!cancelEnrollment)throw new TimeoutException("Истекло ожидание подтверждения оператора.");
    }catch(Exception ex){if(generation==enrollmentGeneration&&!cancelEnrollment){enrolling=false;Status("Регистрация недоступна: "+ex.Message);}}
    finally{if(generation==enrollmentGeneration){enrolling=false;if(cancelEnrollment)Status("Запрос отменён.");}}
   }
