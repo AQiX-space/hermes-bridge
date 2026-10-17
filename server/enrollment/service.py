@@ -40,16 +40,27 @@ class Enrollment:
             now=int(time.time())
             # Reopening a Connector must not create a second request or consume the rate limit.
             existing=d.execute('SELECT ticket FROM requests WHERE device=? AND key=? AND status=? AND created>? ORDER BY created DESC LIMIT 1',(device,key,'pending',now-900)).fetchone()
-            if existing:return existing['ticket']
+            if existing:
+                if self.code_for_unsafe(d,existing['ticket']) is None:
+                    d.execute('UPDATE requests SET code=? WHERE ticket=?',(self.new_code(d,now),existing['ticket']))
+                return existing['ticket']
             ticket=secrets.token_urlsafe(32)
             # Bound anonymous submissions until the HTTPS reverse proxy enforces per-IP limits.
             recent=d.execute('SELECT COUNT(*) FROM requests WHERE device=? AND created>?',(device,now-900)).fetchone()[0]
             if recent>=3:raise OverflowError('registration rate limit')
-            alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-            code=''.join(secrets.choice(alphabet) for _ in range(5))
-            while d.execute("SELECT 1 FROM requests WHERE code=? AND status='pending' AND created>?",(code,now-900)).fetchone():code=''.join(secrets.choice(alphabet) for _ in range(5))
+            code=self.new_code(d,now)
             d.execute('INSERT INTO requests(ticket,device,key,created,status,slot,config,code) VALUES(?,?,?,?,?,?,?,?)',(ticket,device,key,now,'pending',None,None,code))
         return ticket
+    @staticmethod
+    def code_for_unsafe(d,ticket):
+        row=d.execute('SELECT code FROM requests WHERE ticket=?',(ticket,)).fetchone()
+        return row['code'] if row else None
+    @staticmethod
+    def new_code(d,now):
+        alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+        while True:
+            code=''.join(secrets.choice(alphabet) for _ in range(5))
+            if not d.execute("SELECT 1 FROM requests WHERE code=? AND status='pending' AND created>?",(code,now-900)).fetchone():return code
     def code_for(self,ticket):
         with self.db() as d:
             r=d.execute('SELECT code FROM requests WHERE ticket=?',(ticket,)).fetchone()

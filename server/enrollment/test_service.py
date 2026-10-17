@@ -6,6 +6,7 @@ with tempfile.TemporaryDirectory() as d:
  s=Enrollment(pathlib.Path(d)/'db.sqlite')
  t=s.submit('Miniko',key)
  assert s.poll(t)=={'status':'pending'}
+ assert len(s.code_for(t))==5
  assert s.poll('random')=={'status':'not_found'}
  try:s.approve(t,23001,'router-mgmt.aqixnet.com',key);raise AssertionError('approved without code')
  except ValueError:pass
