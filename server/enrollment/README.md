@@ -11,3 +11,9 @@ Production endpoint on DE2: `https://de2.nod.aqixnet.com:18512/v1/enroll`. Dedic
 `revoke --ticket TICKET` previews removal of a previously approved device; `revoke --ticket TICKET --apply` removes only that device's SSH authorized key, keeps a timestamped backup and marks its registration revoked. **Warning:** this blocks future SSH authentications but does NOT immediately terminate an existing SSH session or revoke a live remote forward. For urgent revocation, also terminate that device's existing SSH session through a separately reviewed operator operation. Do not mistake this command for a full live-session kill switch. Temporary Windows PCs are never a gateway dependency.
 
 Production broker deployment is a separate, owner-approved change: do not assume that a GitHub main branch push updates `/opt/hermes-enrollment/service.py` on DE2.
+
+## Протокол МОСТ: пятизначный код
+
+При первом нажатии «Подключить Гермеса» клиент получает случайный пятисимвольный код и показывает его владельцу. После команды «Протокол МОСТ» оператор показывает владельцу найденный код и устройство; **без утвердительного ответа владельца разрешение не выдаётся**. Одобрение выполняется только с `approve --ticket ... --code XXXXX --host ... --hostkey ... --slot auto --apply`. Код привязан к конкретному ключу и билету на 15 минут. Ошибочный код не открывает доступ. `pending` возвращает список с кодами только локальному администратору DE2; не выставлять этот CLI в публичный HTTP. Оператор обязан проверить название и отпечаток ключа.
+
+Для обновления действующей службы на DE2 нужны отдельные backup, миграция SQLite (в `__init__`) и smoke-test до допуска версии beta.12 для владельца. Существующая beta.11 не умеет показывать код, поэтому не объявлять новую схему завершённой до совместного развёртывания.

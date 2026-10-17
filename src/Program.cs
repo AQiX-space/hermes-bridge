@@ -24,7 +24,7 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), updates=new Button(), shortcut=new Button(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button installSsh=new Button(), closeApp=new Button(), copyLog=new Button();
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button installSsh=new Button(), closeApp=new Button(), copyLog=new Button(); string sshVersion=null;
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
    Text="Hermes Connector 0.2.0-beta.12"; Width=870;Height=510;MinimumSize=new Size(870,510);MaximumSize=new Size(870,510);StartPosition=FormStartPosition.CenterScreen;
@@ -148,8 +148,22 @@ namespace HermesBridge {
   }
   void UpdateSshState(){
    string sshExe=Ssh;
-   sshInfo.Text=File.Exists(sshExe)?"OpenSSH: установлен":"OpenSSH: отсутствует";
-   installSsh.Enabled=!File.Exists(sshExe);
+   bool installed=File.Exists(sshExe);
+   if(installed&&sshVersion==null){
+    sshVersion="доступен";
+    try{
+     var p=new ProcessStartInfo(sshExe,"-V"){UseShellExecute=false,CreateNoWindow=true,RedirectStandardError=true};
+     using(var proc=Process.Start(p)){
+      string line=proc.StandardError.ReadLine();
+      if(!proc.WaitForExit(2500)){proc.Kill();}else if(!String.IsNullOrWhiteSpace(line)){
+       var match=System.Text.RegularExpressions.Regex.Match(line,@"OpenSSH[_ ](?:for_Windows_)?([0-9.]+p[0-9]+)");
+       sshVersion=match.Success?match.Groups[1].Value:"доступен";
+      }
+     }
+    }catch{}
+   }
+   sshInfo.Text=installed?"OpenSSH: "+sshVersion:"OpenSSH: —";
+   installSsh.Enabled=!installed;
   }
   void InstallOpenSsh(){
    try{
