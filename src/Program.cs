@@ -25,7 +25,7 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), shortcut=new Button(); LinkLabel updates=new LinkLabel(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(); string sshVersion=null; bool updateAvailable=false; string activeMostCode=""; bool revoking=false;
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(); string sshVersion=null; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false;
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
    Text="Hermes Connector 0.2.2"; Width=890;Height=566;MinimumSize=new Size(890,566);MaximumSize=new Size(890,566);StartPosition=FormStartPosition.CenterScreen;
@@ -81,7 +81,7 @@ namespace HermesBridge {
    Icon=System.Drawing.Icon.ExtractAssociatedIcon(System.Reflection.Assembly.GetExecutingAssembly().Location);tray.Icon=Icon;tray.Text="Hermes Connector";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();tray.BalloonTipTitle="Hermes Connector";tray.BalloonTipText="Работает в области уведомлений. Двойной щелчок открывает окно.";
    connectedTrayIcon=MakeConnectedTrayIcon(Icon);
    ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());
-   trayToggle=new ToolStripMenuItem("Подключить");trayToggle.Click+=async (s,e)=>{if(running||enrolling)await DisconnectAsync();else await StartOrEnrollAsync();};menu.Items.Add(trayToggle);
+   trayToggle=new ToolStripMenuItem("Подключить");trayToggle.Click+=async (s,e)=>{if(running||enrolling||revocationPending)await DisconnectAsync();else await StartOrEnrollAsync();};menu.Items.Add(trayToggle);
    menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
    // Automatic updates only while remote support is disconnected. Signed manifest required.
    updateTimer.Interval=6*60*60*1000;
@@ -189,8 +189,8 @@ namespace HermesBridge {
    deviceInfo.Text="Компьютер: "+(device.Text.Trim().Length>0?device.Text.Trim():Environment.MachineName);mostCode.Text=activeMostCode;
    expiryInfo.Text=running&&autoDisconnect.Checked?"Отключение: "+deadline.ToLocalTime().ToString("HH:mm"):"Автоотключение выключено";
    bool connected=running&&processAlive&&forwardConfirmed;
-   start.Visible=!running&&!enrolling&&!revoking;stop.Visible=running||enrolling||revoking;start.Enabled=!running&&!enrolling&&!revoking;stop.Enabled=(running||enrolling)&&!revoking;
-   if(trayToggle!=null){trayToggle.Text=running||enrolling?"Отключить":"Подключить";trayToggle.Enabled=true;}
+   start.Visible=!running&&!enrolling&&!revoking&&!revocationPending;stop.Visible=running||enrolling||revoking||revocationPending;start.Enabled=!running&&!enrolling&&!revoking&&!revocationPending;stop.Enabled=(running||enrolling||revocationPending)&&!revoking;
+   if(trayToggle!=null){trayToggle.Text=running||enrolling||revocationPending?"Отключить":"Подключить";trayToggle.Enabled=true;}
    if(tray.Visible){tray.Icon=connected&&connectedTrayIcon!=null?connectedTrayIcon:Icon;tray.Text=connected?"Hermes Connector — подключён":enrolling?"Hermes Connector — ожидание":"Hermes Connector — отключён";}
    UpdateSshState();LogAction(value);
   }
@@ -275,7 +275,7 @@ namespace HermesBridge {
   }
   const string EnrollmentApi="https://de2.nod.aqixnet.com:18512/"; // DE2 trusted HTTPS enrollment.
   async Task StartOrEnrollAsync(){
-   if(running||enrolling||revoking)return;
+   if(running||enrolling||revoking||revocationPending)return;
    if(!EnsureKey())return;
    if(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known)&&File.Exists(Path.Combine(root,"approval-ticket"))){StartBridge();return;}
    enrolling=true;cancelEnrollment=false;int generation=++enrollmentGeneration;Status("Отправляем заявку на доступ…");
@@ -382,15 +382,16 @@ namespace HermesBridge {
    if(revoking)return;revoking=true;
    StopBridge();
    string ticketFile=Path.Combine(root,"approval-ticket");
+   revocationPending=File.Exists(ticketFile);
    if(!File.Exists(ticketFile)){
     Status("Туннель закрыт. У прежней регистрации нет сохранённого билета; серверное разрешение может оставаться активным. Обратись к оператору МОСТ для отзыва.");revoking=false;return;
    }
    try{
     string ticket=File.ReadAllText(ticketFile,Encoding.ASCII).Trim();
     if(!await EnrollmentClient.RevokeAsync(new Uri(EnrollmentApi),ticket))throw new InvalidOperationException("Gate не подтвердил отзыв");
-    ClearLocalApproval();Status("Отключено. Gate отозвал разрешение; новое подключение потребует подтверждения.");
+    ClearLocalApproval();revocationPending=false;Status("Отключено. Gate отозвал разрешение; новое подключение потребует подтверждения.");
    }catch(Exception ex){Status("Туннель закрыт, но отзыв на Gate не подтверждён: "+ex.Message+". Повтори «Отключить» после восстановления связи.");}
-   finally{revoking=false;}
+   finally{revoking=false;Status(revocationPending?"Отключено локально. Отзыв разрешения на Gate не завершён — нажми «Отключить» ещё раз.":"Доступ закрыт.");}
   }
   void ClearLocalApproval(){
    foreach(string f in new[]{"approval-ticket","approved-bridge.cfg","known_hosts"}){try{string p=Path.Combine(root,f);if(File.Exists(p))File.Delete(p);}catch{}}
