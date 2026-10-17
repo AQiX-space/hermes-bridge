@@ -18,7 +18,7 @@ namespace HermesBridge {
   readonly string root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesBridge");
   TextBox host=new TextBox(),port=new TextBox(),slot=new TextBox(),known=new TextBox(),device=new TextBox();
   NumericUpDown ttl=new NumericUpDown(); Label state=new Label(); Button start=new Button(),stop=new Button(),reload=new Button(),save=new Button(),import=new Button();
-  NotifyIcon tray=new NotifyIcon(); System.Windows.Forms.Timer heartbeat=new System.Windows.Forms.Timer();
+  NotifyIcon tray=new NotifyIcon(); ToolStripMenuItem trayToggle; Icon connectedTrayIcon; System.Windows.Forms.Timer heartbeat=new System.Windows.Forms.Timer();
   Process tunnel; DateTime deadline; bool running=false, quitting=false, updating=false, forwardConfirmed=false, enrolling=false, cancelEnrollment=false; int enrollmentGeneration=0; string lastTunnelFailure="";
   string Config {get{return Path.Combine(root,"client.ini");}}
   string Ssh {get{return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"OpenSSH","ssh.exe");}}
@@ -28,11 +28,11 @@ namespace HermesBridge {
   TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button installSsh=new Button(), closeApp=new Button(), copyLog=new Button(); string sshVersion=null;
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
-   Text="Hermes Connector 0.2.0-beta.15"; Width=870;Height=510;MinimumSize=new Size(870,510);MaximumSize=new Size(870,510);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.2.0-beta.16"; Width=870;Height=510;MinimumSize=new Size(870,510);MaximumSize=new Size(870,510);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=385,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="Версия 0.2.0-beta.15 · Доступ с разрешения",ForeColor=muted,Left=28,Top=66,Width=385,Height=27};Controls.Add(subtitle);
+   subtitle=new Label(){Text="Версия 0.2.0-beta.16 · Доступ с разрешения",ForeColor=muted,Left=28,Top=66,Width=385,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=22,Top=110,Width=395,Height=118,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=16;state.Width=370;state.Height=42;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=66;connectionInfo.Width=365;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
@@ -70,14 +70,17 @@ namespace HermesBridge {
    copyLog.Text="Копировать журнал";copyLog.SetBounds(650,427,184,30);copyLog.Click+=(s,e)=>Clipboard.SetText(actionLog.Text);Controls.Add(copyLog);
    UpdateSshState();
    Icon=System.Drawing.Icon.ExtractAssociatedIcon(System.Reflection.Assembly.GetExecutingAssembly().Location);tray.Icon=Icon;tray.Text="Hermes Connector";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();tray.BalloonTipTitle="Hermes Connector";tray.BalloonTipText="Работает в области уведомлений. Двойной щелчок открывает окно.";
-   ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());menu.Items.Add("Подключить",null,async (s,e)=>await StartOrEnrollAsync());menu.Items.Add("Отключить",null,(s,e)=>StopBridge());menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
+   connectedTrayIcon=MakeConnectedTrayIcon(Icon);
+   ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());
+   trayToggle=new ToolStripMenuItem("Подключить");trayToggle.Click+=async (s,e)=>{if(running||enrolling)StopBridge();else await StartOrEnrollAsync();};menu.Items.Add(trayToggle);
+   menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
    // Automatic updates only while remote support is disconnected. Signed manifest required.
    updateTimer.Interval=6*60*60*1000;
    updateTimer.Tick+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
    updateTimer.Start();
    Shown+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
    heartbeat.Interval=2000;heartbeat.Tick+=(s,e)=>Tick();heartbeat.Start();
-   LoadSettings();EnsureDesktopShortcut();FormClosing+=(s,e)=>{if(!quitting){e.Cancel=true;Hide();}else{StopBridge();tray.Visible=false;tray.Dispose();}};
+   LoadSettings();EnsureDesktopShortcut();FormClosing+=(s,e)=>{if(!quitting){e.Cancel=true;Hide();}else{StopBridge();tray.Visible=false;tray.Dispose();if(connectedTrayIcon!=null)connectedTrayIcon.Dispose();}};
   }
   async System.Threading.Tasks.Task CheckAndInstallUpdateAsync(bool automatic){
    if(updating||quitting)return;
@@ -129,6 +132,18 @@ namespace HermesBridge {
     if(!silent)Status("Ярлык создан на рабочем столе.");
    }catch(Exception ex){if(!silent)MessageBox.Show("Не удалось создать ярлык: "+ex.Message,"Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
   }
+  static Icon MakeConnectedTrayIcon(Icon source){
+   // Draw at tray resolution so the indicator remains legible at 16px.
+   using(Bitmap bitmap=new Bitmap(32,32))using(Graphics g=Graphics.FromImage(bitmap)){
+    g.Clear(Color.Transparent);g.DrawIcon(source,new Rectangle(0,0,32,32));
+    using(Brush rim=new SolidBrush(Color.White))g.FillEllipse(rim,17,17,15,15);
+    using(Brush dot=new SolidBrush(Color.FromArgb(34,197,94)))g.FillEllipse(dot,19,19,11,11);
+    IntPtr hicon=bitmap.GetHicon();
+    try{using(Icon temp=Icon.FromHandle(hicon))return (Icon)temp.Clone();}
+    finally{DestroyIcon(hicon);}
+   }
+  }
+  [System.Runtime.InteropServices.DllImport("user32.dll")]static extern bool DestroyIcon(IntPtr handle);
   void ShowMain(){Show();WindowState=FormWindowState.Normal;Activate();}
   void Status(string value){
    if(state==null)return;
@@ -139,7 +154,10 @@ namespace HermesBridge {
    connectionInfo.Text=value;
    deviceInfo.Text="Компьютер: "+(device.Text.Trim().Length>0?device.Text.Trim():Environment.MachineName);
    expiryInfo.Text=running?"Автоматическое отключение: "+deadline.ToLocalTime().ToString("HH:mm"):"Закрытие окна оставит программу в трее";
+   bool connected=running&&processAlive&&forwardConfirmed;
    start.Visible=!running&&!enrolling;stop.Visible=running||enrolling;start.Enabled=!running&&!enrolling;stop.Enabled=running||enrolling;
+   if(trayToggle!=null){trayToggle.Text=running||enrolling?"Отключить":"Подключить";trayToggle.Enabled=true;}
+   if(tray.Visible){tray.Icon=connected&&connectedTrayIcon!=null?connectedTrayIcon:Icon;tray.Text=connected?"Hermes Connector — подключён":enrolling?"Hermes Connector — ожидание":"Hermes Connector — отключён";}
    UpdateSshState();LogAction(value);
   }
   void LogAction(string message){
