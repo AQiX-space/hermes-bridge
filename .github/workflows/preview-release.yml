@@ -20,7 +20,7 @@ jobs:
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
           if ($env:RELEASE_VERSION -cne $version) { throw "VERSION mismatch: requested $env:RELEASE_VERSION, source $version" }
-          if ($version -notmatch '^\d+\.\d+\.\d+-beta\.\d+$') { throw "Only beta prereleases allowed" }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Use stable semantic version x.y.z" }
       - name: Compile Windows executable
         shell: pwsh
         run: |
