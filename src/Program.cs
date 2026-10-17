@@ -154,7 +154,7 @@ namespace HermesBridge {
   void InstallOpenSsh(){
    try{
     if(MessageBox.Show("Установить компонент Windows OpenSSH Client? Потребуются права администратора.","Hermes Connector",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
-    var ps=new ProcessStartInfo("powershell.exe","-NoProfile -Command "Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0"");ps.UseShellExecute=true;ps.Verb="runas";Process.Start(ps);
+    var ps=new ProcessStartInfo("powershell.exe","-NoProfile -Command \"Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0\"");ps.UseShellExecute=true;ps.Verb="runas";Process.Start(ps);
     Status("Установка OpenSSH запущена. После завершения нажми «Подключить».");
    }catch(Exception ex){Status("Не удалось запустить установку OpenSSH: "+ex.Message);}
   }
