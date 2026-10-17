@@ -28,13 +28,13 @@ namespace HermesBridge {
   TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button installSsh=new Button(), sshCheck=new Button(), uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); string sshVersion=null; bool updateAvailable=false; string activeMostCode="";
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
-   Text="Hermes Connector 0.2.0-beta.16"; Width=900;Height=605;MinimumSize=new Size(900,605);MaximumSize=new Size(900,605);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.2.0-beta.17"; Width=900;Height=605;MinimumSize=new Size(900,605);MaximumSize=new Size(900,605);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=385,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="Версия 0.2.0-beta.16 · Доступ с разрешения",ForeColor=muted,Left=28,Top=66,Width=385,Height=27};Controls.Add(subtitle);
+   subtitle=new Label(){Text="Версия 0.2.0-beta.17",ForeColor=muted,Left=28,Top=66,Width=265,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=22,Top=150,Width=408,Height=142,BackColor=surface};Controls.Add(card);
-   state.Left=17;state.Top=12;state.Width=370;state.Height=44;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
+   state.Left=17;state.Top=12;state.Width=250;state.Height=44;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=56;connectionInfo.Width=375;connectionInfo.Height=38;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
    deviceInfo.Left=18;deviceInfo.Top=103;deviceInfo.Width=375;deviceInfo.Height=30;deviceInfo.ForeColor=muted;card.Controls.Add(deviceInfo);
    mostCode.SetBounds(272,14,120,32);mostCode.Font=new Font("Consolas",12,FontStyle.Bold);mostCode.TextAlign=ContentAlignment.MiddleRight;card.Controls.Add(mostCode);
@@ -46,7 +46,7 @@ namespace HermesBridge {
    expiryInfo.Left=24;expiryInfo.Top=487;expiryInfo.Width=400;expiryInfo.Height=28;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
    advanced.Left=0;advanced.Top=505;advanced.Width=495;advanced.Height=280;advanced.Visible=false;Controls.Add(advanced);
    int y=5;AddLine("Устройство",device,ref y);AddLine("Сервер",host,ref y);AddLine("Порт сервера",port,ref y);AddLine("Порт сессии",slot,ref y);
-   ttl.Minimum=5;ttl.Maximum=240;ttl.Value=60;ttl.Left=270;ttl.Top=y;ttl.Width=90;
+   ttl.Minimum=5;ttl.Maximum=1440;ttl.Value=60;ttl.Left=270;ttl.Top=y;ttl.Width=90;
    advanced.Controls.Add(new Label(){Text="Сессия, минут",Left=26,Top=y+4,Width=240});advanced.Controls.Add(ttl);y+=35;
    known.Visible=false;
    keyCopy=new Button(){Text="Скопировать ключ",Left=25,Top=y,Width=208,Height=32};advanced.Controls.Add(keyCopy);
@@ -227,7 +227,7 @@ namespace HermesBridge {
    if(File.Exists(Config)){foreach(string line in File.ReadAllLines(Config,Encoding.UTF8)){
     int i=line.IndexOf('=');if(i<1)continue;string name=line.Substring(0,i),value=line.Substring(i+1);
     if(name=="device")device.Text=value;if(name=="host")host.Text=value;if(name=="port")port.Text=value;if(name=="slot")slot.Text=value;
-    int n;if(name=="ttl"&&int.TryParse(value,out n))ttl.Value=Math.Max(5,Math.Min(240,n));
+    int n;if(name=="ttl"&&int.TryParse(value,out n))ttl.Value=Math.Max(5,Math.Min(1440,n));
    }}
    Status("Нажми «Подключить Гермеса» для запроса доступа.");
   }
