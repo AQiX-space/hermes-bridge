@@ -7,6 +7,14 @@ with tempfile.TemporaryDirectory() as d:
  t=s.submit('Miniko',key)
  assert s.poll(t)=={'status':'pending'}
  assert len(s.code_for(t))==5
+ # Waiting for operator can span the initial 15-minute creation time,
+ # while the same client continues polling. A stale inactive ticket expires.
+ with s.db() as conn: conn.execute('UPDATE requests SET created=created-1800 WHERE ticket=?',(t,))
+ assert s.poll(t)=={'status':'pending'}
+ assert s.approve(t,23001,'router-mgmt.aqixnet.com',key,code=s.code_for(t))['dry_run']
+ stale=s.submit('Offline-PC','ssh-ed25519 '+base64.b64encode(b'\0\0\0\x0bssh-ed25519\0\0\0\x20'+bytes((i+24)%256 for i in range(32))).decode())
+ with s.db() as conn:conn.execute('UPDATE requests SET last_seen=last_seen-901 WHERE ticket=?',(stale,))
+ assert s.poll(stale)=={'status':'expired'}
  assert s.poll('random')=={'status':'not_found'}
  try:s.approve(t,23001,'router-mgmt.aqixnet.com',key);raise AssertionError('approved without code')
  except ValueError:pass

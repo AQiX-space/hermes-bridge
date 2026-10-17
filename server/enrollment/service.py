@@ -22,6 +22,8 @@ class Enrollment:
             d.execute("CREATE UNIQUE INDEX IF NOT EXISTS approved_slots ON requests(slot) WHERE status='approved'")
             d.execute("CREATE UNIQUE INDEX IF NOT EXISTS approved_keys ON requests(key) WHERE status='approved'")
             if not any(c[1]=='code' for c in d.execute('PRAGMA table_info(requests)')):d.execute('ALTER TABLE requests ADD COLUMN code TEXT')
+            if not any(c[1]=='last_seen' for c in d.execute('PRAGMA table_info(requests)')):d.execute('ALTER TABLE requests ADD COLUMN last_seen INTEGER')
+            d.execute('UPDATE requests SET last_seen=created WHERE last_seen IS NULL')
     @contextmanager
     def db(self):
         c=sqlite3.connect(self.path,timeout=15);c.row_factory=sqlite3.Row
@@ -39,7 +41,7 @@ class Enrollment:
         with self.db() as d:
             now=int(time.time())
             # Reopening a Connector must not create a second request or consume the rate limit.
-            existing=d.execute('SELECT ticket FROM requests WHERE device=? AND key=? AND status=? AND created>? ORDER BY created DESC LIMIT 1',(device,key,'pending',now-900)).fetchone()
+            existing=d.execute('SELECT ticket FROM requests WHERE device=? AND key=? AND status=? AND last_seen>? ORDER BY created DESC LIMIT 1',(device,key,'pending',now-900)).fetchone()
             if existing:
                 if self.code_for_unsafe(d,existing['ticket']) is None:
                     d.execute('UPDATE requests SET code=? WHERE ticket=?',(self.new_code(d,now),existing['ticket']))
@@ -49,7 +51,7 @@ class Enrollment:
             recent=d.execute('SELECT COUNT(*) FROM requests WHERE device=? AND created>?',(device,now-900)).fetchone()[0]
             if recent>=3:raise OverflowError('registration rate limit')
             code=self.new_code(d,now)
-            d.execute('INSERT INTO requests(ticket,device,key,created,status,slot,config,code) VALUES(?,?,?,?,?,?,?,?)',(ticket,device,key,now,'pending',None,None,code))
+            d.execute('INSERT INTO requests(ticket,device,key,created,status,slot,config,code,last_seen) VALUES(?,?,?,?,?,?,?,?,?)',(ticket,device,key,now,'pending',None,None,code,now))
         return ticket
     @staticmethod
     def code_for_unsafe(d,ticket):
@@ -60,17 +62,23 @@ class Enrollment:
         alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
         while True:
             code=''.join(secrets.choice(alphabet) for _ in range(5))
-            if not d.execute("SELECT 1 FROM requests WHERE code=? AND status='pending' AND created>?",(code,now-900)).fetchone():return code
+            if not d.execute("SELECT 1 FROM requests WHERE code=? AND status='pending' AND last_seen>?",(code,now-900)).fetchone():return code
     def code_for(self,ticket):
         with self.db() as d:
             r=d.execute('SELECT code FROM requests WHERE ticket=?',(ticket,)).fetchone()
             return r['code'] if r else None
     def poll(self,ticket):
         if not re.fullmatch(r'[a-zA-Z0-9_-]{40,60}',ticket):return {'status':'not_found'}
-        with self.db() as d:r=d.execute('SELECT * FROM requests WHERE ticket=?',(ticket,)).fetchone()
-        if not r:return {'status':'not_found'}
-        if r['status']=='pending' and time.time()-r['created']>900:return {'status':'expired'}
-        result={'status':r['status']}
+        with self.db() as d:
+            r=d.execute('SELECT * FROM requests WHERE ticket=?',(ticket,)).fetchone()
+            if not r:return {'status':'not_found'}
+            if r['status']=='pending':
+                now=int(time.time())
+                # Pending ticket remains valid while its original owner polls it;
+                # expire only after 15 minutes of inactivity. Never rotate its code.
+                if now-r['last_seen']>900:return {'status':'expired'}
+                d.execute('UPDATE requests SET last_seen=? WHERE ticket=?',(now,ticket))
+            result={'status':r['status']}
         if r['status']=='approved':result['config']=json.loads(r['config'])
         return result
     def approve(self,ticket,slot,host,hostkey,apply=False,keys_file=None,code=None):
@@ -78,7 +86,7 @@ class Enrollment:
         if not re.fullmatch(r'[A-Za-z0-9.-]{3,255}',host):raise ValueError('invalid host')
         with self.db() as d:
             r=d.execute('SELECT * FROM requests WHERE ticket=? AND status=?',(ticket,'pending')).fetchone()
-            if not r or time.time()-r['created']>900:raise ValueError('not pending')
+            if not r or time.time()-r['last_seen']>900:raise ValueError('not pending')
             if not r['code'] or code!=r['code']:raise ValueError('matching five-character confirmation code required')
             if slot is None:
                 used={x[0] for x in d.execute("SELECT slot FROM requests WHERE status='approved' AND slot IS NOT NULL")}
@@ -178,7 +186,7 @@ def main():
     a=p.parse_args();db=Enrollment(a.db)
     if a.action=='serve':ThreadingHTTPServer(('127.0.0.1',18511),handler(db)).serve_forever()
     elif a.action=='pending':
-        with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created,code FROM requests WHERE status='pending' AND created>?",(int(time.time())-900,))]))
+        with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created,code FROM requests WHERE status='pending' AND last_seen>?",(int(time.time())-900,))]))
     elif a.action=='approve':print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file,code=a.code),indent=2))
     elif a.action=='revoke':print(json.dumps(db.revoke(a.ticket,a.apply,a.keys_file),indent=2))
 if __name__=='__main__':main()
