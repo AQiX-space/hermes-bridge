@@ -241,7 +241,7 @@ namespace HermesBridge {
      try{answer=await EnrollmentClient.PollAsync(endpoint,ticket.ticket);}
      catch(WebException ex){
       var response=ex.Response as HttpWebResponse;
-      if(response!=null&&(response.StatusCode==HttpStatusCode.ServiceUnavailable||response.StatusCode==HttpStatusCode.TooManyRequests||response.StatusCode==HttpStatusCode.BadGateway||response.StatusCode==HttpStatusCode.GatewayTimeout)){
+      if(response!=null&&(response.StatusCode==HttpStatusCode.ServiceUnavailable||(int)response.StatusCode==429||response.StatusCode==HttpStatusCode.BadGateway||response.StatusCode==HttpStatusCode.GatewayTimeout)){
        Status("Код МОСТ: "+ticket.code+" · Сервер временно занят, повторяем проверку…");continue;
       }
       if(ex.Status==WebExceptionStatus.Timeout||ex.Status==WebExceptionStatus.ConnectFailure||ex.Status==WebExceptionStatus.NameResolutionFailure){
