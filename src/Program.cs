@@ -28,22 +28,22 @@ namespace HermesBridge {
   TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(); string sshVersion=null; bool updateAvailable=false; string activeMostCode="";
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
-   Text="Hermes Connector 0.2.0-beta.18"; Width=900;Height=605;MinimumSize=new Size(900,605);MaximumSize=new Size(900,605);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.2.0-beta.18"; Width=890;Height=566;MinimumSize=new Size(890,566);MaximumSize=new Size(890,566);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
-   Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=385,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="Версия 0.2.0-beta.18",ForeColor=muted,Left=28,Top=66,Width=265,Height=27};Controls.Add(subtitle);
-   Panel card=new Panel(){Left=22,Top=150,Width=408,Height=142,BackColor=surface};Controls.Add(card);
+   Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",19,FontStyle.Bold),Left=30,Top=24,Width=388,Height=42};Controls.Add(heading);
+   subtitle=new Label(){Text="Версия 0.2.0-beta.18",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
+   Panel card=new Panel(){Left=28,Top=167,Width=403,Height=130,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=12;state.Width=250;state.Height=44;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
-   connectionInfo.Left=18;connectionInfo.Top=56;connectionInfo.Width=375;connectionInfo.Height=38;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
-   deviceInfo.Left=18;deviceInfo.Top=103;deviceInfo.Width=375;deviceInfo.Height=30;deviceInfo.ForeColor=muted;card.Controls.Add(deviceInfo);
+   connectionInfo.Left=18;connectionInfo.Top=54;connectionInfo.Width=368;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
+   deviceInfo.Left=18;deviceInfo.Top=94;deviceInfo.Width=368;deviceInfo.Height=28;deviceInfo.ForeColor=muted;card.Controls.Add(deviceInfo);
    mostCode.SetBounds(272,14,120,32);mostCode.Font=new Font("Consolas",12,FontStyle.Bold);mostCode.TextAlign=ContentAlignment.MiddleRight;card.Controls.Add(mostCode);
-   start.Text="Подключить Гермеса";start.Left=22;start.Top=310;start.Width=408;start.Height=49;start.FlatStyle=FlatStyle.Flat;start.FlatAppearance.BorderSize=0;start.BackColor=Color.FromArgb(36,133,78);start.ForeColor=Color.White;start.Font=new Font("Segoe UI Semibold",12,FontStyle.Bold);Controls.Add(start);
-   stop.Text="Отключить Гермеса";stop.Left=22;stop.Top=310;stop.Width=408;stop.Height=49;stop.FlatStyle=FlatStyle.Flat;stop.BackColor=Color.White;stop.ForeColor=Color.White;Controls.Add(stop);
+   start.Text="Подключить Гермеса";start.Left=28;start.Top=312;start.Width=403;start.Height=48;start.FlatStyle=FlatStyle.Flat;start.FlatAppearance.BorderSize=0;start.BackColor=Color.FromArgb(36,133,78);start.ForeColor=Color.White;start.Font=new Font("Segoe UI Semibold",12,FontStyle.Bold);Controls.Add(start);
+   stop.Text="Отключить Гермеса";stop.Left=28;stop.Top=312;stop.Width=403;stop.Height=48;stop.FlatStyle=FlatStyle.Flat;stop.BackColor=Color.White;stop.ForeColor=Color.White;Controls.Add(stop);
    setup.Text="Настройки и регистрация  ▾";setup.Left=22;setup.Top=384;setup.Width=395;setup.Height=40;setup.FlatStyle=FlatStyle.Flat;setup.ForeColor=muted;Controls.Add(setup);
-   updates.Text="Проверить";updates.SetBounds(336,71,94,24);updates.TextAlign=ContentAlignment.MiddleRight;updates.LinkColor=blue;updates.ActiveLinkColor=blue;Controls.Add(updates);
+   updates.Text="Проверить";updates.SetBounds(337,77,94,24);updates.TextAlign=ContentAlignment.MiddleRight;updates.LinkColor=blue;updates.ActiveLinkColor=blue;Controls.Add(updates);
    updates.Click+=async (s,e)=>await CheckAndInstallUpdateAsync(false);
-   expiryInfo.Left=24;expiryInfo.Top=487;expiryInfo.Width=400;expiryInfo.Height=28;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
+   expiryInfo.Left=30;expiryInfo.Top=462;expiryInfo.Width=400;expiryInfo.Height=24;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
    advanced.Left=0;advanced.Top=505;advanced.Width=495;advanced.Height=280;advanced.Visible=false;Controls.Add(advanced);
    int y=5;AddLine("Устройство",device,ref y);AddLine("Сервер",host,ref y);AddLine("Порт сервера",port,ref y);AddLine("Порт сессии",slot,ref y);
    ttl.Minimum=5;ttl.Maximum=1440;ttl.Value=60;ttl.Left=270;ttl.Top=y;ttl.Width=90;
@@ -61,21 +61,21 @@ namespace HermesBridge {
    start.Click+=async (s,e)=>await StartOrEnrollAsync();stop.Click+=(s,e)=>StopBridge();
    setup.Visible=false;advanced.Visible=false;
    stop.BackColor=Color.FromArgb(176,56,56);stop.FlatAppearance.BorderSize=0;
-   sshInfo.SetBounds(24,110,235,28);sshInfo.ForeColor=muted;Controls.Add(sshInfo);
-   installSsh.Text="Установить";installSsh.SetBounds(334,113,96,25);installSsh.TextAlign=ContentAlignment.MiddleRight;installSsh.LinkColor=blue;Controls.Add(installSsh);
-   sshCheck.Text="Проверить";sshCheck.SetBounds(334,113,96,25);sshCheck.TextAlign=ContentAlignment.MiddleRight;sshCheck.LinkColor=blue;Controls.Add(sshCheck);
+   sshInfo.SetBounds(31,119,235,28);sshInfo.ForeColor=muted;Controls.Add(sshInfo);
+   installSsh.Text="Установить";installSsh.SetBounds(335,122,96,25);installSsh.TextAlign=ContentAlignment.MiddleRight;installSsh.LinkColor=blue;Controls.Add(installSsh);
+   sshCheck.Text="Проверить";sshCheck.SetBounds(335,122,96,25);sshCheck.TextAlign=ContentAlignment.MiddleRight;sshCheck.LinkColor=blue;Controls.Add(sshCheck);
    sshCheck.Click+=(s,e)=>{sshVersion=null;UpdateSshState();Status("OpenSSH проверен.");};
    installSsh.Click+=(s,e)=>InstallOpenSsh();
-   shortcut.Parent= this;shortcut.SetBounds(22,382,190,37);shortcut.Visible=true;
-   closeApp.Text="Закрыть Connector";closeApp.SetBounds(223,382,207,37);closeApp.Click+=(s,e)=>{StopBridge();quitting=true;Close();};Controls.Add(closeApp);
-   Label logTitle=new Label(){Text="Журнал действий",Left=450,Top=35,Width=375,Height=28,Font=new Font("Segoe UI Semibold",13,FontStyle.Bold)};Controls.Add(logTitle);
-   actionLog.SetBounds(458,72,412,442);actionLog.Multiline=true;actionLog.ScrollBars=ScrollBars.Vertical;actionLog.ReadOnly=true;actionLog.BackColor=surface;actionLog.ForeColor=ink;actionLog.Font=new Font("Consolas",9);Controls.Add(actionLog);
-   copyLog.Text="Копировать журнал";copyLog.SetBounds(686,526,184,30);copyLog.Click+=(s,e)=>Clipboard.SetText(actionLog.Text);Controls.Add(copyLog);
-   autoDisconnect.Text="Автоматическое отключение";autoDisconnect.SetBounds(24,456,238,28);autoDisconnect.Checked=false;Controls.Add(autoDisconnect);
-   ttl.Parent=this;ttl.SetBounds(293,456,75,28);ttl.Minimum=5;ttl.Maximum=1440;ttl.Value=60;ttl.Enabled=false;
+   shortcut.Parent= this;shortcut.SetBounds(28,376,190,37);shortcut.Visible=true;
+   closeApp.Text="Закрыть Connector";closeApp.SetBounds(230,376,201,37);closeApp.Click+=(s,e)=>{StopBridge();quitting=true;Close();};Controls.Add(closeApp);
+   Label logTitle=new Label(){Text="Журнал действий",Left=467,Top=33,Width=376,Height=28,Font=new Font("Segoe UI Semibold",13,FontStyle.Bold)};Controls.Add(logTitle);
+   actionLog.SetBounds(463,78,395,401);actionLog.Multiline=true;actionLog.ScrollBars=ScrollBars.Vertical;actionLog.ReadOnly=true;actionLog.BorderStyle=BorderStyle.FixedSingle;actionLog.BackColor=Color.FromArgb(251,249,246);actionLog.ForeColor=ink;actionLog.Font=new Font("Consolas",9);Controls.Add(actionLog);
+   copyLog.Text="Копировать журнал";copyLog.SetBounds(674,492,184,30);copyLog.Click+=(s,e)=>Clipboard.SetText(actionLog.Text);Controls.Add(copyLog);
+   autoDisconnect.Text="Автоматическое отключение";autoDisconnect.SetBounds(30,429,238,28);autoDisconnect.Checked=false;Controls.Add(autoDisconnect);
+   ttl.Parent=this;ttl.SetBounds(302,429,75,28);ttl.Minimum=5;ttl.Maximum=1440;ttl.Value=60;ttl.Enabled=false;
    autoDisconnect.CheckedChanged+=(sender,e)=>{ttl.Enabled=autoDisconnect.Checked;if(running)deadline=autoDisconnect.Checked?DateTime.UtcNow.AddMinutes((double)ttl.Value):DateTime.MaxValue;Status("Настройки таймера изменены.");};
-   Controls.Add(new Label(){Text="мин",Left=375,Top=460,Width=45});
-   uninstall.Text="Полностью удалить Connector";uninstall.SetBounds(22,530,408,28);uninstall.FlatStyle=FlatStyle.Flat;uninstall.ForeColor=Color.FromArgb(176,56,56);Controls.Add(uninstall);
+   Controls.Add(new Label(){Text="мин",Left=384,Top=434,Width=45});
+   uninstall.Text="Полностью удалить Connector";uninstall.SetBounds(28,496,403,30);uninstall.FlatStyle=FlatStyle.Flat;uninstall.ForeColor=Color.FromArgb(176,56,56);Controls.Add(uninstall);
    uninstall.Click+=(s,e)=>UninstallConnector();
    UpdateSshState();
    Icon=System.Drawing.Icon.ExtractAssociatedIcon(System.Reflection.Assembly.GetExecutingAssembly().Location);tray.Icon=Icon;tray.Text="Hermes Connector";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();tray.BalloonTipTitle="Hermes Connector";tray.BalloonTipText="Работает в области уведомлений. Двойной щелчок открывает окно.";
@@ -139,7 +139,7 @@ namespace HermesBridge {
   void EnsureDesktopShortcut(){
    try {
     string desktop=Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-    if(!String.IsNullOrWhiteSpace(desktop) && !File.Exists(Path.Combine(desktop,"Hermes Connector.lnk")))CreateDesktopShortcut(true);
+    if(!String.IsNullOrWhiteSpace(desktop)){string exe=System.Reflection.Assembly.GetExecutingAssembly().Location;string appdir=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesBridge");if(!File.Exists(Path.Combine(desktop,"Hermes Connector.lnk"))||String.Equals(Path.GetDirectoryName(exe),appdir,StringComparison.OrdinalIgnoreCase))CreateDesktopShortcut(true);}
    }catch(Exception){} // Shortcut failure must not prevent launching the app.
   }
   void CreateDesktopShortcut(){CreateDesktopShortcut(false);}

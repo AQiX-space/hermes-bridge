@@ -74,14 +74,30 @@ namespace HermesBridge {
    var asset=Array.Find(r.assets,a=>a.name=="HermesBridge.exe");
    string sha=asset.digest.Substring("sha256:".Length).ToLowerInvariant();
    string exe=Assembly.GetExecutingAssembly().Location;
-   string helper=Path.Combine(Path.GetDirectoryName(exe),"HermesBridgeUpdater.exe");
+   // Updater helper always lives in the per-user writable application directory.
+   // A legacy EXE can be run from C:\ or another read-only directory.
+   string home=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesBridge");
+   Directory.CreateDirectory(home);
+   string helper=Path.Combine(home,"HermesBridgeUpdater.exe");
+   string destination=exe;
+   bool canReplace=true;
+   string probe=Path.Combine(Path.GetDirectoryName(exe),".hermes-update-write-test-"+Guid.NewGuid().ToString("N"));
+   try{using(FileStream f=File.Create(probe)){} File.Delete(probe);}
+   catch(UnauthorizedAccessException){canReplace=false;}
+   catch(IOException){canReplace=false;}
+   finally{try{if(File.Exists(probe))File.Delete(probe);}catch{}}
+   if(!canReplace){
+    destination=Path.Combine(home,"HermesConnector.exe");
+    if(!String.Equals(exe,destination,StringComparison.OrdinalIgnoreCase))File.Copy(exe,destination,true);
+   }
    using(var resource=Assembly.GetExecutingAssembly().GetManifestResourceStream("HermesBridgeUpdater.exe")){
     if(resource==null)throw new InvalidDataException("Missing embedded update helper");
-    using(var output=File.Create(helper+".tmp"))resource.CopyTo(output);
+    string temporary=helper+".tmp";
+    using(var output=File.Create(temporary))resource.CopyTo(output);
     if(File.Exists(helper))File.Delete(helper);
-    File.Move(helper+".tmp",helper);
+    File.Move(temporary,helper);
    }
-   string cmd=Process.GetCurrentProcess().Id+" \""+path+"\" \""+exe+"\" "+sha+" launch";
+   string cmd=Process.GetCurrentProcess().Id+" \""+path+"\" \""+destination+"\" "+sha+" launch";
    Process.Start(new ProcessStartInfo(helper,cmd){UseShellExecute=false,CreateNoWindow=true});
   }
  }
