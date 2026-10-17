@@ -160,7 +160,7 @@ class Enrollment:
                 raise
             return {'dry_run':False,'device':r['device'],'slot':config['slot'],'backup':str(backup)}
 
-def handler(db):
+def handler(db,keys_file=Path('/var/lib/hermes-bridge/.ssh/authorized_keys')):
     class Handler(BaseHTTPRequestHandler):
         def send(self,code,data):
             b=json.dumps(data).encode();self.send_response(code);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
@@ -178,7 +178,7 @@ def handler(db):
                         row=conn.execute('SELECT status FROM requests WHERE ticket=?',(ticket,)).fetchone()
                     if row is None:return self.send(404,{'error':'not found'})
                     if row['status']=='approved':
-                        db.revoke(ticket,apply=True,keys_file=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
+                        db.revoke(ticket,apply=True,keys_file=keys_file)
                     elif row['status']=='pending':
                         with db.db() as conn:conn.execute("UPDATE requests SET status='revoked' WHERE ticket=? AND status='pending'",(ticket,))
                     return self.send(200,{'status':'revoked'})
