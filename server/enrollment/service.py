@@ -165,6 +165,25 @@ def handler(db):
         def send(self,code,data):
             b=json.dumps(data).encode();self.send_response(code);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
         def do_POST(self):
+            if self.path=='/v1/enroll/revoke':
+                try:
+                    size=int(self.headers.get('Content-Length','0'))
+                    if not 0<size<=256:return self.send(413,{'error':'size'})
+                    obj=json.loads(self.rfile.read(size))
+                    ticket=obj.get('ticket')
+                    if not isinstance(ticket,str) or not re.fullmatch(r'[a-zA-Z0-9_-]{40,60}',ticket):return self.send(400,{'error':'invalid'})
+                    # A 256-bit ticket is a bearer capability: can revoke only its own access.
+                    # An absent/already-revoked ticket is idempotently harmless.
+                    with db.db() as conn:
+                        row=conn.execute('SELECT status FROM requests WHERE ticket=?',(ticket,)).fetchone()
+                    if row is None:return self.send(404,{'error':'not found'})
+                    if row['status']=='approved':
+                        db.revoke(ticket,apply=True,keys_file=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
+                    elif row['status']=='pending':
+                        with db.db() as conn:conn.execute("UPDATE requests SET status='revoked' WHERE ticket=? AND status='pending'",(ticket,))
+                    return self.send(200,{'status':'revoked'})
+                except (ValueError,KeyError,TypeError):return self.send(400,{'error':'invalid'})
+                except Exception:return self.send(503,{'error':'revocation temporarily unavailable'})
             if self.path!='/v1/enroll':return self.send(404,{'error':'not found'})
             try:
                 size=int(self.headers.get('Content-Length','0'))
