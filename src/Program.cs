@@ -28,11 +28,11 @@ namespace HermesBridge {
   TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button installSsh=new Button(), closeApp=new Button(), copyLog=new Button(); string sshVersion=null;
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
-   Text="Hermes Connector 0.2.0-beta.14"; Width=870;Height=510;MinimumSize=new Size(870,510);MaximumSize=new Size(870,510);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.2.0-beta.15"; Width=870;Height=510;MinimumSize=new Size(870,510);MaximumSize=new Size(870,510);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",20,FontStyle.Bold),Left=25,Top=21,Width=385,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="Версия 0.2.0-beta.14 · Доступ с разрешения",ForeColor=muted,Left=28,Top=66,Width=385,Height=27};Controls.Add(subtitle);
+   subtitle=new Label(){Text="Версия 0.2.0-beta.15 · Доступ с разрешения",ForeColor=muted,Left=28,Top=66,Width=385,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=22,Top=110,Width=395,Height=118,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=16;state.Width=370;state.Height=42;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=66;connectionInfo.Width=365;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
