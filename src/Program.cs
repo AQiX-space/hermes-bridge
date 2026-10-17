@@ -231,6 +231,7 @@ namespace HermesBridge {
     Uri endpoint=new Uri(EnrollmentApi);
     EnrollmentTicket ticket=null;
     while(ticket==null&&!cancelEnrollment&&generation==enrollmentGeneration){
+     bool retry=false;
      try{ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim());}
      catch(WebException ex){
       var response=ex.Response as HttpWebResponse;
@@ -238,8 +239,9 @@ namespace HermesBridge {
       transient=transient||ex.Status==WebExceptionStatus.Timeout||ex.Status==WebExceptionStatus.ConnectFailure||ex.Status==WebExceptionStatus.NameResolutionFailure;
       if(!transient)throw;
       Status("МОСТ: сервер занят или недоступен. Повторяем запрос без нового нажатия…");
-      await Task.Delay(35000);
+      retry=true;
      }
+     if(retry)await Task.Delay(35000);
     }
     if(generation!=enrollmentGeneration||cancelEnrollment||ticket==null)return;
     Status("Код МОСТ: "+ticket.code+" · Назови его при подтверждении.");
