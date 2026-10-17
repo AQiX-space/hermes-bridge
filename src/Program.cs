@@ -37,7 +37,7 @@ namespace HermesBridge {
    state.Left=17;state.Top=12;state.Width=250;state.Height=44;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=54;connectionInfo.Width=368;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
    deviceInfo.Left=18;deviceInfo.Top=94;deviceInfo.Width=368;deviceInfo.Height=28;deviceInfo.ForeColor=muted;card.Controls.Add(deviceInfo);
-   mostCode.SetBounds(272,14,120,32);mostCode.Font=new Font("Consolas",12,FontStyle.Bold);mostCode.TextAlign=ContentAlignment.MiddleRight;card.Controls.Add(mostCode);
+   mostCode.SetBounds(273,14,119,32);mostCode.Font=new Font("Consolas",12,FontStyle.Bold);mostCode.TextAlign=ContentAlignment.MiddleRight;card.Controls.Add(mostCode);
    start.Text="Подключить Гермеса";start.Left=28;start.Top=312;start.Width=403;start.Height=48;start.FlatStyle=FlatStyle.Flat;start.FlatAppearance.BorderSize=0;start.BackColor=Color.FromArgb(36,133,78);start.ForeColor=Color.White;start.Font=new Font("Segoe UI Semibold",12,FontStyle.Bold);Controls.Add(start);
    stop.Text="Отключить Гермеса";stop.Left=28;stop.Top=312;stop.Width=403;stop.Height=48;stop.FlatStyle=FlatStyle.Flat;stop.BackColor=Color.White;stop.ForeColor=Color.White;Controls.Add(stop);
    setup.Text="Настройки и регистрация  ▾";setup.Left=22;setup.Top=384;setup.Width=395;setup.Height=40;setup.FlatStyle=FlatStyle.Flat;setup.ForeColor=muted;Controls.Add(setup);
@@ -58,7 +58,7 @@ namespace HermesBridge {
    advanced.Height=y+119;
    keyCopy.Click+=(s,e)=>{if(EnsureKey()){Clipboard.SetText(File.ReadAllText(Key+".pub"));Status("Ключ скопирован. Нужна регистрация на шлюзе.");}};
    import.Click+=(s,e)=>ImportProvision();save.Click+=(s,e)=>SaveSettings();reload.Click+=(s,e)=>{StopBridge();LoadSettings();};
-   start.Click+=async (s,e)=>await StartOrEnrollAsync();stop.Click+=(s,e)=>StopBridge();
+   start.Click+=async (s,e)=>await StartOrEnrollAsync();stop.Click+=async (s,e)=>await DisconnectAsync();
    setup.Visible=false;advanced.Visible=false;
    stop.BackColor=Color.FromArgb(176,56,56);stop.FlatAppearance.BorderSize=0;
    sshInfo.SetBounds(31,119,235,28);sshInfo.ForeColor=muted;Controls.Add(sshInfo);
@@ -81,7 +81,7 @@ namespace HermesBridge {
    Icon=System.Drawing.Icon.ExtractAssociatedIcon(System.Reflection.Assembly.GetExecutingAssembly().Location);tray.Icon=Icon;tray.Text="Hermes Connector";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();tray.BalloonTipTitle="Hermes Connector";tray.BalloonTipText="Работает в области уведомлений. Двойной щелчок открывает окно.";
    connectedTrayIcon=MakeConnectedTrayIcon(Icon);
    ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());
-   trayToggle=new ToolStripMenuItem("Подключить");trayToggle.Click+=async (s,e)=>{if(running||enrolling)StopBridge();else await StartOrEnrollAsync();};menu.Items.Add(trayToggle);
+   trayToggle=new ToolStripMenuItem("Подключить");trayToggle.Click+=async (s,e)=>{if(running||enrolling)await DisconnectAsync();else await StartOrEnrollAsync();};menu.Items.Add(trayToggle);
    menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
    // Automatic updates only while remote support is disconnected. Signed manifest required.
    updateTimer.Interval=6*60*60*1000;
@@ -183,7 +183,7 @@ namespace HermesBridge {
    if(state==null)return;
    bool processAlive=false;
    try{processAlive=tunnel!=null&&!tunnel.HasExited;}catch{}
-   state.Text=running&&processAlive&&forwardConfirmed?"Соединение установлено":enrolling?"Ожидаем разрешение":running?"Подключение…":"Доступ отключён";
+   state.Text=running&&processAlive&&forwardConfirmed?"Подключено":enrolling?"Ожидаем разрешение":running?"Подключение…":"Доступ отключён";
    state.ForeColor=running&&processAlive&&forwardConfirmed?Color.FromArgb(22,101,52):running?blue:ink;
    connectionInfo.Text=value;
    deviceInfo.Text="Компьютер: "+(device.Text.Trim().Length>0?device.Text.Trim():Environment.MachineName);mostCode.Text=activeMostCode;
@@ -277,7 +277,7 @@ namespace HermesBridge {
   async Task StartOrEnrollAsync(){
    if(running||enrolling)return;
    if(!EnsureKey())return;
-   if(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known)){StartBridge();return;}
+   if(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known)&&File.Exists(Path.Combine(root,"approval-ticket"))){StartBridge();return;}
    enrolling=true;cancelEnrollment=false;int generation=++enrollmentGeneration;Status("Отправляем заявку на доступ…");
    try{
     Uri endpoint=new Uri(EnrollmentApi);
@@ -317,6 +317,7 @@ namespace HermesBridge {
      if(generation!=enrollmentGeneration||cancelEnrollment)return;
      if(answer.status=="approved"){
       EnrollmentClient.SaveApproved(answer.config,root);
+      File.WriteAllText(Path.Combine(root,"approval-ticket"),ticket.ticket,Encoding.ASCII);
       host.Text=answer.config.host;port.Text=answer.config.port.ToString();slot.Text=answer.config.slot.ToString();
       SaveSettings();enrolling=false;
       if(!cancelEnrollment)StartBridge();return;
@@ -375,6 +376,23 @@ namespace HermesBridge {
    if(tunnel!=null){forwardConfirmed=false;Status(lastTunnelFailure.Length>0?lastTunnelFailure+" Повторное подключение…":"SSH-канал прерван. Повторное подключение…");}
    if(DateTime.UtcNow<retryAt)return;
    retryAt=DateTime.UtcNow.AddSeconds(10);Launch();
+  }
+  async Task DisconnectAsync(){
+   // Stop the transport immediately, then revoke this session on Gate before allowing a new registration.
+   StopBridge();
+   string ticketFile=Path.Combine(root,"approval-ticket");
+   if(!File.Exists(ticketFile)){
+    ClearLocalApproval();Status("Туннель закрыт. Нет активного разрешения для отзыва.");return;
+   }
+   try{
+    string ticket=File.ReadAllText(ticketFile,Encoding.ASCII).Trim();
+    if(!await EnrollmentClient.RevokeAsync(new Uri(EnrollmentApi),ticket))throw new InvalidOperationException("Gate не подтвердил отзыв");
+    ClearLocalApproval();Status("Отключено. Gate отозвал разрешение; новое подключение потребует подтверждения.");
+   }catch(Exception ex){Status("Туннель закрыт, но отзыв на Gate не подтверждён: "+ex.Message+". Повтори «Отключить» после восстановления связи.");}
+  }
+  void ClearLocalApproval(){
+   foreach(string f in new[]{"approval-ticket","approved-bridge.cfg","known_hosts"}){try{string p=Path.Combine(root,f);if(File.Exists(p))File.Delete(p);}catch{}}
+   host.Text="";slot.Text="";port.Text="22471";activeMostCode="";
   }
   void StopBridge(){
    cancelEnrollment=true;enrollmentGeneration++;enrolling=false;running=false;activeMostCode="";forwardConfirmed=false;lastTunnelFailure="";

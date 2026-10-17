@@ -32,7 +32,7 @@ namespace HermesBridge {
     using(var st=req.GetRequestStream())st.Write(payload,0,payload.Length);
     using(var res=(HttpWebResponse)req.GetResponse())using(var reader=new StreamReader(res.GetResponseStream())){
      var r=Parser.Deserialize<EnrollmentTicket>(reader.ReadToEnd());
-     if(res.StatusCode!=HttpStatusCode.Accepted||r==null||r.status!="pending"||!Regex.IsMatch(r.ticket??"",@"^[a-zA-Z0-9_-]{40,60}$")||!Regex.IsMatch(r.code??"",@"^[A-HJ-NP-Z2-9]{5}$"))throw new InvalidDataException("Enrollment response invalid");
+     if(res.StatusCode!=HttpStatusCode.Accepted||r==null||r.status!="pending"||!Regex.IsMatch(r.ticket??"",@"^[a-zA-Z0-9_-]{40,60}$")||!Regex.IsMatch(r.code??"",@"^(?:[A-Z][a-z][0-9]{2}|[A-HJ-NP-Z2-9]{5})$"))throw new InvalidDataException("Enrollment response invalid");
      return r;
     }
    });
@@ -47,6 +47,19 @@ namespace HermesBridge {
      if(result==null||result.status==null)throw new InvalidDataException("Invalid enrollment response");
      if(result.status=="approved"&&!Valid(result.config))throw new CryptographicException("Invalid approved gateway host key");
      return result;
+    }
+   });
+  }
+  public static async Task<bool> RevokeAsync(Uri endpoint,string ticket){
+   CheckEndpoint(endpoint);if(!Regex.IsMatch(ticket??"",@"^[a-zA-Z0-9_-]{40,60}$"))throw new InvalidDataException("Bad revoke ticket");
+   return await Task.Run(()=>{
+    ServicePointManager.SecurityProtocol|=SecurityProtocolType.Tls12;
+    var req=(HttpWebRequest)WebRequest.Create(new Uri(endpoint,"/v1/enroll/revoke"));req.Method="POST";req.ContentType="application/json";req.Timeout=15000;
+    var payload=Encoding.UTF8.GetBytes(Parser.Serialize(new{ticket=ticket}));
+    using(var st=req.GetRequestStream())st.Write(payload,0,payload.Length);
+    using(var res=(HttpWebResponse)req.GetResponse())using(var reader=new StreamReader(res.GetResponseStream())){
+     var result=Parser.Deserialize<EnrollmentResult>(reader.ReadToEnd());
+     return res.StatusCode==HttpStatusCode.OK&&result!=null&&result.status=="revoked";
     }
    });
   }
