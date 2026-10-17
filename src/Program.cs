@@ -113,6 +113,25 @@ namespace HermesBridge {
     else updates.Text="Автообновление недоступно";
    }finally{updating=false;updates.Enabled=true;if(!quitting)updates.Text=updateAvailable?"● Обновить":"Проверить";}
   }
+  void UninstallConnector(){
+   if(MessageBox.Show("Удалить Connector, его локальные SSH-ключи, настройки и ярлык?\nСначала будет остановлен туннель. Действие необратимо; разрешение на Gate нужно отозвать отдельно.","Удаление Connector",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
+   try{
+    string exe=System.Reflection.Assembly.GetExecutingAssembly().Location;
+    string link=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),"Hermes Connector.lnk");
+    StopBridge();
+    string cleanup=Path.Combine(Path.GetTempPath(),"hermes-uninstall-"+Guid.NewGuid().ToString("N")+".cmd");
+    // Delete exact Connector-owned files, not the user's Recycle Bin or other files.
+    string script="@echo off\r\n"+
+     "ping 127.0.0.1 -n 3 >nul\r\n"+
+     "del /f /q \""+exe+"\" 2>nul\r\n"+
+     "del /f /q \""+link+"\" 2>nul\r\n"+
+     "rmdir /s /q \""+root+"\" 2>nul\r\n"+
+     "del /f /q \"%~f0\"\r\n";
+    File.WriteAllText(cleanup,script,Encoding.Default);
+    Process.Start(new ProcessStartInfo("cmd.exe","/c \""+cleanup+"\""){UseShellExecute=false,CreateNoWindow=true});
+    quitting=true;Close();
+   }catch(Exception ex){MessageBox.Show("Ошибка удаления: "+ex.Message,"Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+  }
   void AddLine(string title,TextBox t,ref int y){advanced.Controls.Add(new Label(){Text=title,Left=26,Top=y+4,Width=240});t.Left=270;t.Top=y;t.Width=189;advanced.Controls.Add(t);y+=34;}
   void EnsureDesktopShortcut(){
    try {
