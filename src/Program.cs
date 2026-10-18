@@ -297,6 +297,7 @@ namespace HermesBridge {
      if(retry)await Task.Delay(35000);
     }
     if(generation!=enrollmentGeneration||cancelEnrollment||ticket==null)return;
+    TicketStore.Write(Path.Combine(root,"approval-ticket"),ticket.ticket);
     activeMostCode=ticket.code;Status("Код МОСТ: "+ticket.code+" · Назови его при подтверждении.");
     // Reuse the same request and code until approval/rejection/expiry. Transient HTTP
     // errors must NEVER create another registration or discard this ticket.
