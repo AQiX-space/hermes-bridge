@@ -24,6 +24,7 @@ class Enrollment:
             if not any(c[1]=='code' for c in d.execute('PRAGMA table_info(requests)')):d.execute('ALTER TABLE requests ADD COLUMN code TEXT')
             if not any(c[1]=='last_seen' for c in d.execute('PRAGMA table_info(requests)')):d.execute('ALTER TABLE requests ADD COLUMN last_seen INTEGER')
             d.execute('UPDATE requests SET last_seen=created WHERE last_seen IS NULL')
+            d.execute('CREATE TABLE IF NOT EXISTS audit_events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, event TEXT NOT NULL, device TEXT NOT NULL, slot INTEGER, ticket_hash TEXT NOT NULL)')
     @contextmanager
     def db(self):
         c=sqlite3.connect(self.path,timeout=15);c.row_factory=sqlite3.Row
@@ -35,6 +36,15 @@ class Enrollment:
             raise
         finally:
             c.close()
+    @staticmethod
+    def audit(d,event,request):
+        # Only a non-reversible ticket digest; never store bearer tokens or full keys in the event log.
+        import hashlib
+        d.execute('INSERT INTO audit_events(ts,event,device,slot,ticket_hash) VALUES(?,?,?,?,?)',
+                  (int(time.time()),event,request['device'],request['slot'],hashlib.sha256(request['ticket'].encode()).hexdigest()))
+    def recent_events(self,limit=50):
+        with self.db() as d:
+            return [dict(row) for row in d.execute('SELECT ts,event,device,slot,ticket_hash FROM audit_events ORDER BY id DESC LIMIT ?',(min(max(1,int(limit)),200),))]
     def submit(self,device,key):
         if not isinstance(device,str) or not re.fullmatch(r'[a-zA-Z0-9._-]{1,64}',device):raise ValueError('bad device')
         key=public_key(key)
@@ -52,6 +62,7 @@ class Enrollment:
             if recent>=3:raise OverflowError('registration rate limit')
             code=self.new_code(d,now)
             d.execute('INSERT INTO requests(ticket,device,key,created,status,slot,config,code,last_seen) VALUES(?,?,?,?,?,?,?,?,?)',(ticket,device,key,now,'pending',None,None,code,now))
+            self.audit(d,'requested',{'ticket':ticket,'device':device,'slot':None})
         return ticket
     @staticmethod
     def code_for_unsafe(d,ticket):
@@ -119,6 +130,7 @@ class Enrollment:
                     if os.path.exists(tmp):os.unlink(tmp)
                 try:
                     d.execute('UPDATE requests SET status=?,slot=?,config=? WHERE ticket=?',('approved',slot,json.dumps(config),ticket))
+                    self.audit(d,'approved',{'ticket':ticket,'device':r['device'],'slot':slot})
                     d.commit()
                 except Exception:
                     shutil.copy2(backup,target)
@@ -154,6 +166,7 @@ class Enrollment:
                 if os.path.exists(tmp):os.unlink(tmp)
             try:
                 d.execute("UPDATE requests SET status='revoked' WHERE ticket=? AND status='approved'",(ticket,))
+                self.audit(d,'revoked',r)
                 d.commit()
             except Exception:
                 shutil.copy2(backup,target)
@@ -200,11 +213,12 @@ def handler(db,keys_file=Path('/var/lib/hermes-bridge/.ssh/authorized_keys')):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--db',type=Path,required=True);sub=p.add_subparsers(dest='action',required=True)
-    sub.add_parser('serve');sub.add_parser('pending')
+    sub.add_parser('serve');sub.add_parser('pending');sub.add_parser('events')
     ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--code',required=True,help='Four-character code shown in Connector (legacy five-character tickets accepted)');ap.add_argument('--slot',type=lambda v:None if v=='auto' else int(v),default=None,help='Reverse port 23000-24999, or auto (default)');ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     rp=sub.add_parser('revoke');rp.add_argument('--ticket',required=True);rp.add_argument('--apply',action='store_true');rp.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     a=p.parse_args();db=Enrollment(a.db)
     if a.action=='serve':ThreadingHTTPServer(('127.0.0.1',18511),handler(db)).serve_forever()
+    elif a.action=='events':print(json.dumps(db.recent_events(),indent=2))
     elif a.action=='pending':
         with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created,code FROM requests WHERE status='pending' AND last_seen>?",(int(time.time())-900,))]))
     elif a.action=='approve':print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file,code=a.code),indent=2))
