@@ -44,7 +44,7 @@ def record(path, event):
     # 0600 even when the caller has an unusually permissive umask.
     fd=os.open(str(path),os.O_WRONLY|os.O_APPEND|os.O_CREAT,0o600)
     try:
-        os.fchmod(fd,0o600)
+        if hasattr(os,"fchmod"):os.fchmod(fd,0o600) # POSIX; on Windows parent ACL controls access
         with os.fdopen(fd,'a',encoding='utf-8') as out:
             out.write(json.dumps(event,ensure_ascii=False,sort_keys=True)+'\n')
     except Exception:
