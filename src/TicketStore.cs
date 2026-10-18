@@ -10,8 +10,8 @@ namespace HermesBridge {
    byte[] cipher=ProtectedData.Protect(plain,null,DataProtectionScope.CurrentUser);
    string temp=path+".tmp";
    File.WriteAllText(temp,"dpapi:"+Convert.ToBase64String(cipher),Encoding.ASCII);
-   if(File.Exists(path))File.Delete(path);
-   File.Move(temp,path);
+   if(File.Exists(path))File.Replace(temp,path,null);
+   else File.Move(temp,path);
   }
   public static string Read(string path){
    string payload=File.ReadAllText(path,Encoding.ASCII).Trim();
