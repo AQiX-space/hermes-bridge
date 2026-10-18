@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import hashlib
 import json
 import pathlib
@@ -29,7 +30,7 @@ class OperatorTests(unittest.TestCase):
    self.assertEqual(rows[0]['stdout_sha256'],hashlib.sha256(output).hexdigest())
    self.assertNotIn('SECRET_SENSITIVE',path.read_text())
    self.assertNotIn('secret-for-test',path.read_text())
-   self.assertEqual(path.stat().st_mode & 0o777,0o600)
+   if os.name!='nt':self.assertEqual(path.stat().st_mode & 0o777,0o600)
  def test_failure_is_logged_without_raw_output(self):
   with tempfile.TemporaryDirectory() as d:
    root=pathlib.Path(d);key=root/'identity';key.write_text('test')
