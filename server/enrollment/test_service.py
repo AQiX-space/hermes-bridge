@@ -87,6 +87,16 @@ with tempfile.TemporaryDirectory() as d:
  second=s.reap_expired(auth,bounded_close)
  assert second['revoked']>=1 and s.poll(auto_ticket)['status']=='revoked',second
  assert 'existing-safe-ssh-key' in auth.read_text()
+ # Doctor must not disclose public keys or tickets when reporting stray grants.
+ assert s.doctor(auth)['ok'],s.doctor(auth)
+ extra='restrict,port-forwarding,permitlisten="127.0.0.1:24888" '+third_key
+ with auth.open('a') as output:output.write(extra+'\n')
+ report=s.doctor(auth)
+ assert not report['ok'] and any(f['problem']=='unmatched_scoped_authorizations' for f in report['findings']),report
+ assert third_key not in str(report) and third not in str(report)
+ auth.write_text(auth.read_text().replace(extra+'\n',''))
+ assert s.doctor(auth)['ok'],s.doctor(auth)
+
 
 
  try:s.submit('Bad',key+'\ncommand="evil"');raise Exception('bad key accepted')

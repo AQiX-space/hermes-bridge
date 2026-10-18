@@ -160,18 +160,26 @@ class Enrollment:
             return {'auth_line':auth,'config':config,'dry_run':not apply,'backup':str(backup) if backup else None}
 
     def doctor(self,keys_file):
-        """Read-only consistency inspection; never expose keys or bearer tickets."""
+        """Read-only reconciliation of active DB grants and SSH keys, no secret values."""
         target=Path(keys_file)
         if target.is_symlink() or not target.is_file():raise ValueError('authorized_keys must be a regular file')
-        lines=set(target.read_text().splitlines())
+        lines=target.read_text().splitlines()
         findings=[]
         with self.db() as d:
-            rows=d.execute("SELECT device,key,slot,status FROM requests WHERE status='approved' ORDER BY device").fetchall()
-            for r in rows:
-                expected='restrict,port-forwarding,permitlisten="127.0.0.1:%s" %s' % (r['slot'],r['key'])
-                if expected not in lines:
-                    findings.append({'device':r['device'],'slot':r['slot'],'problem':'approved_key_missing'})
-        return {'ok':not findings,'approved':len(rows),'findings':findings}
+            active=d.execute("SELECT device,key,slot,status FROM requests WHERE status IN ('approved','revoking') ORDER BY device").fetchall()
+            expected=set()
+            for r in active:
+                auth='restrict,port-forwarding,permitlisten="127.0.0.1:%s" %s' % (r['slot'],r['key'])
+                if r['status']=='approved':
+                    expected.add(auth)
+                    count=lines.count(auth)
+                    if count!=1:findings.append({'device':r['device'],'slot':r['slot'],'problem':'approved_key_missing_or_duplicate'})
+                elif auth in lines:
+                    findings.append({'device':r['device'],'slot':r['slot'],'problem':'revoking_key_still_authorized'})
+        unmatched=sum(1 for line in lines if 'permitlisten=' in line and line not in expected)
+        if unmatched:findings.append({'problem':'unmatched_scoped_authorizations','count':unmatched})
+        return {'ok':not findings,'approved':sum(r['status']=='approved' for r in active),
+                'revoking':sum(r['status']=='revoking' for r in active),'findings':findings}
 
     def revoke(self,ticket,apply=False,keys_file=None,terminal_status="revoked"):
         """Remove one approved device key; ticket is a server-side operator identifier."""
