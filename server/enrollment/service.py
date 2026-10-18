@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """Operator-approved enrollment broker. Serve on 127.0.0.1 behind trusted HTTPS."""
-import argparse, base64, json, os, re, secrets, sqlite3, time
+import argparse, base64, hashlib, json, os, re, secrets, sqlite3, sys, time
 import datetime, shutil, tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+
+def audit_event(action, ticket, device, slot=None):
+    """Minimal structured audit; never log bearer tickets, device public keys or secrets."""
+    record={'event':'hermes_gate','action':action,'device':device,
+            'ticket_id':hashlib.sha256(ticket.encode('ascii')).hexdigest()[:16],
+            'slot':slot,'time_utc':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+    print(json.dumps(record,ensure_ascii=False),file=sys.stderr,flush=True)
 
 KEY_RE=re.compile(r'^ssh-ed25519 ([a-zA-Z0-9+/]+={0,2})(?:[ \t]+[^\r\n]*)?$')
 def public_key(value):
@@ -135,6 +142,7 @@ class Enrollment:
                 except Exception:
                     shutil.copy2(backup,target)
                     raise
+            if apply:audit_event('approved',ticket,r['device'],slot)
             return {'auth_line':auth,'config':config,'dry_run':not apply,'backup':str(backup) if backup else None}
 
     def revoke(self,ticket,apply=False,keys_file=None):
@@ -171,6 +179,7 @@ class Enrollment:
             except Exception:
                 shutil.copy2(backup,target)
                 raise
+            audit_event('revoked',ticket,r['device'],config['slot'])
             return {'dry_run':False,'device':r['device'],'slot':config['slot'],'backup':str(backup)}
 
 def handler(db,keys_file=Path('/var/lib/hermes-bridge/.ssh/authorized_keys')):
