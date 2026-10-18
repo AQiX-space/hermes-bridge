@@ -1,11 +1,15 @@
-import base64, json, pathlib, tempfile, threading, urllib.request
+import base64, json, pathlib, tempfile, threading, urllib.request, urllib.error
 from http.server import ThreadingHTTPServer
 from service import Enrollment,handler
 key='ssh-ed25519 '+base64.b64encode(b'\0\0\0\x0bssh-ed25519\0\0\0\x20'+bytes(range(32))).decode()
 with tempfile.TemporaryDirectory() as tmp:
  db=Enrollment(pathlib.Path(tmp)/'state.sqlite')
  auth=pathlib.Path(tmp)/'authorized_keys';auth.write_text('existing-safe-ssh-key\n')
- web=ThreadingHTTPServer(('127.0.0.1',0),handler(db,auth))
+ allow_close={'ready':False}
+ def close_slot(slot):
+  assert slot==23011
+  return allow_close['ready']
+ web=ThreadingHTTPServer(('127.0.0.1',0),handler(db,auth,close_slot))
  thread=threading.Thread(target=web.serve_forever,daemon=True);thread.start()
  try:
   api=f'http://127.0.0.1:{web.server_port}/v1/enroll'
@@ -20,6 +24,15 @@ with tempfile.TemporaryDirectory() as tmp:
    assert response['config']['hostkey']==key
   # Owner-controlled per-ticket disconnect revokes only its own approved key.
   revoke=urllib.request.Request(api+'/revoke',json.dumps({'ticket':ticket}).encode(),headers={'Content-Type':'application/json'})
+  # Closing a key is NOT proof that the active reverse tunnel has stopped.
+  try:
+   urllib.request.urlopen(revoke,timeout=3)
+   raise AssertionError('Gate falsely reported revoked with live SSH session')
+  except urllib.error.HTTPError as e:
+   assert e.code==503 and json.load(e)['status']=='revoking'
+  with urllib.request.urlopen(api+'/'+ticket,timeout=3) as r:assert json.load(r)['status']=='revoking'
+  assert auth.read_text()=='existing-safe-ssh-key\n', 'Key must be removed while closing'
+  allow_close['ready']=True
   with urllib.request.urlopen(revoke,timeout=3) as r:assert r.status==200 and json.load(r)['status']=='revoked'
   with urllib.request.urlopen(revoke,timeout=3) as r:assert r.status==200 and json.load(r)['status']=='revoked'
   with urllib.request.urlopen(api+'/'+ticket,timeout=3) as r:assert json.load(r)['status']=='revoked'
