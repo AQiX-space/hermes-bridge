@@ -31,6 +31,22 @@ with tempfile.TemporaryDirectory() as tmp:
   except urllib.error.HTTPError as e:
    assert e.code==503 and json.load(e)['status']=='revoking'
   with urllib.request.urlopen(api+'/'+ticket,timeout=3) as r:assert json.load(r)['status']=='revoking'
+  # While shutdown is not confirmed the port and key must remain reserved.
+  newkey='ssh-ed25519 '+base64.b64encode(b'\0\0\0\x0bssh-ed25519\0\0\0\x20'+bytes((i+33)%256 for i in range(32))).decode()
+  competing=db.submit('Competing-PC',newkey)
+  try:
+   db.approve(competing,23011,'test-gateway.example',key,code=db.code_for(competing))
+   raise AssertionError('revoking reverse port was reused')
+  except ValueError:pass
+  try:
+   db.approve(competing,23012,'test-gateway.example',key,code=db.code_for(competing))
+  except ValueError:raise
+  same_key=db.submit('Same-Key',key)
+  try:
+   db.approve(same_key,23012,'test-gateway.example',key,code=db.code_for(same_key))
+   raise AssertionError('revoking device key was reused')
+  except ValueError:pass
+
   assert auth.read_text()=='existing-safe-ssh-key\n', 'Key must be removed while closing'
   allow_close['ready']=True
   with urllib.request.urlopen(revoke,timeout=3) as r:assert r.status==200 and json.load(r)['status']=='revoked'
