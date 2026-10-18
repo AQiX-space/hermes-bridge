@@ -26,8 +26,12 @@ class Enrollment:
         self.path=str(path)
         with self.db() as d:
             d.execute('CREATE TABLE IF NOT EXISTS requests(ticket TEXT PRIMARY KEY,device TEXT,key TEXT,created INTEGER,status TEXT,slot INTEGER,config TEXT)')
-            d.execute("CREATE UNIQUE INDEX IF NOT EXISTS approved_slots ON requests(slot) WHERE status='approved'")
-            d.execute("CREATE UNIQUE INDEX IF NOT EXISTS approved_keys ON requests(key) WHERE status='approved'")
+            # Replacing the original partial indices is safe: revoking reservations
+            # MUST stay exclusive until the reverse listener is verified closed.
+            d.execute('DROP INDEX IF EXISTS approved_slots')
+            d.execute('DROP INDEX IF EXISTS approved_keys')
+            d.execute("CREATE UNIQUE INDEX approved_slots ON requests(slot) WHERE status IN ('approved','revoking')")
+            d.execute("CREATE UNIQUE INDEX approved_keys ON requests(key) WHERE status IN ('approved','revoking')")
             if not any(c[1]=='code' for c in d.execute('PRAGMA table_info(requests)')):d.execute('ALTER TABLE requests ADD COLUMN code TEXT')
             if not any(c[1]=='last_seen' for c in d.execute('PRAGMA table_info(requests)')):d.execute('ALTER TABLE requests ADD COLUMN last_seen INTEGER')
             d.execute('UPDATE requests SET last_seen=created WHERE last_seen IS NULL')
@@ -108,11 +112,11 @@ class Enrollment:
             if not r or time.time()-r['last_seen']>900:raise ValueError('not pending')
             if not r['code'] or code!=r['code']:raise ValueError('matching confirmation code required')
             if slot is None:
-                used={x[0] for x in d.execute("SELECT slot FROM requests WHERE status='approved' AND slot IS NOT NULL")}
+                used={x[0] for x in d.execute("SELECT slot FROM requests WHERE status IN ('approved','revoking') AND slot IS NOT NULL")}
                 slot=next((candidate for candidate in range(23000,25000) if candidate not in used),None)
                 if slot is None:raise ValueError('no available reverse ports')
-            if d.execute('SELECT 1 FROM requests WHERE status=? AND slot=?',('approved',slot)).fetchone():raise ValueError('slot already assigned')
-            if d.execute('SELECT 1 FROM requests WHERE status=? AND key=?',('approved',r['key'])).fetchone():raise ValueError('key already registered')
+            if d.execute("SELECT 1 FROM requests WHERE status IN ('approved','revoking') AND slot=?",(slot,)).fetchone():raise ValueError('slot already assigned')
+            if d.execute("SELECT 1 FROM requests WHERE status IN ('approved','revoking') AND key=?",(r['key'],)).fetchone():raise ValueError('key already registered')
             config={'host':host,'port':22471,'slot':slot,'hostkey':public_key(hostkey)}
             auth='restrict,port-forwarding,permitlisten="127.0.0.1:%s" %s' % (slot,r['key'])
             backup=None
