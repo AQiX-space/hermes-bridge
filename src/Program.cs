@@ -67,7 +67,7 @@ namespace HermesBridge {
    sshCheck.Click+=(s,e)=>{sshVersion=null;UpdateSshState();Status("OpenSSH проверен.");};
    installSsh.Click+=(s,e)=>InstallOpenSsh();
    shortcut.Parent= this;shortcut.SetBounds(28,376,190,37);shortcut.Visible=true;
-   closeApp.Text="Закрыть Connector";closeApp.SetBounds(230,376,201,37);closeApp.Click+=(s,e)=>{StopBridge();quitting=true;Close();};Controls.Add(closeApp);
+   closeApp.Text="Закрыть Connector";closeApp.SetBounds(230,376,201,37);closeApp.Click+=async (s,e)=>await ExitWithRevokeAsync();Controls.Add(closeApp);
    Label logTitle=new Label(){Text="Журнал действий",Left=467,Top=33,Width=376,Height=28,Font=new Font("Segoe UI Semibold",13,FontStyle.Bold)};Controls.Add(logTitle);
    actionLog.SetBounds(463,78,395,401);actionLog.Multiline=true;actionLog.ScrollBars=ScrollBars.Vertical;actionLog.ReadOnly=true;actionLog.BorderStyle=BorderStyle.FixedSingle;actionLog.BackColor=Color.FromArgb(251,249,246);actionLog.ForeColor=ink;actionLog.Font=new Font("Consolas",9);Controls.Add(actionLog);
    copyLog.Text="Копировать журнал";copyLog.SetBounds(674,492,184,30);copyLog.Click+=(s,e)=>Clipboard.SetText(actionLog.Text);Controls.Add(copyLog);
@@ -76,13 +76,13 @@ namespace HermesBridge {
    autoDisconnect.CheckedChanged+=(sender,e)=>{ttl.Enabled=autoDisconnect.Checked;if(running)deadline=autoDisconnect.Checked?DateTime.UtcNow.AddMinutes((double)ttl.Value):DateTime.MaxValue;Status("Настройки таймера изменены.");};
    Controls.Add(new Label(){Text="мин",Left=384,Top=434,Width=45});
    uninstall.Text="Полностью удалить Connector";uninstall.SetBounds(28,496,403,30);uninstall.FlatStyle=FlatStyle.Flat;uninstall.ForeColor=Color.FromArgb(176,56,56);Controls.Add(uninstall);
-   uninstall.Click+=(s,e)=>UninstallConnector();
+   uninstall.Click+=async (s,e)=>await UninstallConnectorAsync();
    UpdateSshState();
    Icon=System.Drawing.Icon.ExtractAssociatedIcon(System.Reflection.Assembly.GetExecutingAssembly().Location);tray.Icon=Icon;tray.Text="Hermes Connector";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();tray.BalloonTipTitle="Hermes Connector";tray.BalloonTipText="Работает в области уведомлений. Двойной щелчок открывает окно.";
    connectedTrayIcon=MakeConnectedTrayIcon(Icon);
    ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());
    trayToggle=new ToolStripMenuItem("Подключить");trayToggle.Click+=async (s,e)=>{if(running||enrolling||revocationPending)await DisconnectAsync();else await StartOrEnrollAsync();};menu.Items.Add(trayToggle);
-   menu.Items.Add("Выход",null,(s,e)=>{quitting=true;Close();});tray.ContextMenuStrip=menu;
+   menu.Items.Add("Выход",null,async (s,e)=>await ExitWithRevokeAsync());tray.ContextMenuStrip=menu;
    // Automatic updates only while remote support is disconnected. Signed manifest required.
    updateTimer.Interval=6*60*60*1000;
    updateTimer.Tick+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
@@ -112,7 +112,7 @@ namespace HermesBridge {
     else updates.Text="Автообновление недоступно";
    }finally{updating=false;updates.Enabled=true;if(!quitting)updates.Text=updateAvailable?"● Обновить":"Проверить";updates.LinkColor=updateAvailable?Color.FromArgb(36,133,78):blue;}
   }
-  void UninstallConnector(){
+  async Task UninstallConnectorAsync(){
    if(MessageBox.Show("Окончательно удалить Connector и его локальные ключи, настройки, обновления и ярлык?\n\nТуннель отключится; серверное разрешение Hermes Gate нужно отозвать отдельно.","Удаление Hermes Connector",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
    try{
     string exe=System.Reflection.Assembly.GetExecutingAssembly().Location;
@@ -371,11 +371,31 @@ namespace HermesBridge {
   DateTime retryAt=DateTime.MinValue;
   void Tick(){
    if(!running)return;
-   if(DateTime.UtcNow>=deadline){StopBridge();Status("Время сессии истекло; доступ закрыт.");return;}
+   if(DateTime.UtcNow>=deadline){_ = DisconnectAsync();Status("Время сессии истекло; проверяем отзыв разрешения на Gate.");return;}
    if(tunnel!=null&&!tunnel.HasExited)return;
    if(tunnel!=null){forwardConfirmed=false;Status(lastTunnelFailure.Length>0?lastTunnelFailure+" Повторное подключение…":"SSH-канал прерван. Повторное подключение…");}
    if(DateTime.UtcNow<retryAt)return;
    retryAt=DateTime.UtcNow.AddSeconds(10);Launch();
+  }
+  async Task<bool> EnsureRevokedAsync(){
+   if(running||enrolling||revocationPending||File.Exists(Path.Combine(root,"approval-ticket"))){
+    await DisconnectAsync();
+    if(revocationPending)return false;
+   }
+   // Legacy approvals cannot safely be treated as revoked without a ticket.
+   if(!String.IsNullOrWhiteSpace(slot.Text)&&!File.Exists(Path.Combine(root,"approval-ticket"))){
+    Status("Старое разрешение нельзя отозвать автоматически. Требуется операторский отзыв МОСТ.");
+    return false;
+   }
+   return true;
+  }
+  async Task ExitWithRevokeAsync(){
+   if(quitting||revoking)return;
+   if(!await EnsureRevokedAsync()){
+    MessageBox.Show("Gate не подтвердил отзыв доступа. Приложение останется открытым для повторной попытки.","Отключение не завершено",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+    return;
+   }
+   quitting=true;Close();
   }
   async Task DisconnectAsync(){
    // Stop the transport immediately, then revoke this session on Gate before allowing a new registration.
