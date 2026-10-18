@@ -319,7 +319,7 @@ namespace HermesBridge {
      if(generation!=enrollmentGeneration||cancelEnrollment)return;
      if(answer.status=="approved"){
       EnrollmentClient.SaveApproved(answer.config,root);
-      File.WriteAllText(Path.Combine(root,"approval-ticket"),ticket.ticket,Encoding.ASCII);
+      TicketStore.Write(Path.Combine(root,"approval-ticket"),ticket.ticket);
       host.Text=answer.config.host;port.Text=answer.config.port.ToString();slot.Text=answer.config.slot.ToString();
       SaveSettings();enrolling=false;
       if(!cancelEnrollment)StartBridge();return;
@@ -409,7 +409,7 @@ namespace HermesBridge {
     Status("Туннель закрыт. У прежней регистрации нет сохранённого билета; серверное разрешение может оставаться активным. Обратись к оператору МОСТ для отзыва.");revoking=false;return;
    }
    try{
-    string ticket=File.ReadAllText(ticketFile,Encoding.ASCII).Trim();
+    string ticket=TicketStore.Read(ticketFile).Trim();
     if(!await EnrollmentClient.RevokeAsync(new Uri(EnrollmentApi),ticket))throw new InvalidOperationException("Gate не подтвердил отзыв");
     ClearLocalApproval();revocationPending=false;Status("Отключено. Gate отозвал разрешение; новое подключение потребует подтверждения.");
    }catch(Exception ex){Status("Туннель закрыт, но отзыв на Gate не подтверждён: "+ex.Message+". Повтори «Отключить» после восстановления связи.");}
