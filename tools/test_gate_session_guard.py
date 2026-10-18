@@ -1,7 +1,7 @@
 import os
 import pathlib
 import tempfile
-from gate_session_guard import inspected_target, listener_owners, tcp_listeners
+from gate_session_guard import inspected_target, listener_owners, tcp_listeners, terminate_scoped_session
 
 PORT=23021
 
@@ -24,6 +24,13 @@ with tempfile.TemporaryDirectory() as d:
     assert listener_owners(PORT,r)==[1802]
     good=inspected_target(PORT,r,main_pid=1200,expected_uid=1507)
     assert good['safe'] and good['pid']==1802 and good['starttime']=='999',good
+    # Simulated pidfd target: same process must still own the port before SIGTERM.
+    signaled=[]
+    fd=__import__('os').open(__file__,__import__('os').O_RDONLY)
+    result=terminate_scoped_session(PORT,r,main_pid=1200,expected_uid=1507,
+        open_pidfd=lambda pid: fd,
+        send_pidfd=lambda pfd,sig,info,flags:signaled.append((sig,pfd)))
+    assert result['safe'] and len(signaled)==1
     assert not inspected_target(PORT,r,main_pid=1802,expected_uid=1507)['safe']
     assert inspected_target(PORT,r,main_pid=1200,expected_uid=1000)['reason']=='uid_mismatch'
     (r/'1802'/'cgroup').write_text('0::/system.slice/sshd.service\n')
@@ -40,3 +47,10 @@ with tempfile.TemporaryDirectory() as d:
     other=r/'1803';other.mkdir();(other/'fd').mkdir();(other/'fd'/'3').symlink_to('socket:[77891]')
     assert inspected_target(PORT,r,main_pid=1200,expected_uid=1507)['reason']=='ambiguous_or_missing_listener'
 print('PASS gate session identification: one scoped sshd only, fail closed on master/wrong-user/foreign listener/ambiguity')
+
+with tempfile.TemporaryDirectory() as d:
+    r=pathlib.Path(d);setup(r)
+    # The same sshd process may listen on multiple reverse ports: refuse broad termination.
+    with (r/'net'/'tcp').open('a') as out:
+        out.write('1: 0100007F:5AEE 00000000:0000 0A 0 0 0 0 0 77891\n')
+    assert inspected_target(PORT,r,1200,1507)['reason']=='shared_sshd_process'

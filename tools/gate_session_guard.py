@@ -8,7 +8,7 @@ import argparse
 import os
 import pathlib
 import re
-import socket
+import signal
 
 MIN_PORT, MAX_PORT = 23000, 24999
 
@@ -80,7 +80,35 @@ def inspected_target(port,proc=pathlib.Path('/proc'),main_pid=None,expected_uid=
         return {'safe':False,'reason':'wrong_cgroup','pids':pids}
     if not re.search(r'sshd: hermes-bridge\b',cmdline):
         return {'safe':False,'reason':'not_authenticated_device_sshd','pids':pids}
+    # One SSH process may own multiple reverse ports: terminating it would disrupt
+    # another device. Refuse such a candidate, even if the requested port is valid.
+    all_listeners=tcp_listeners(proc)
+    for other_port in all_listeners:
+        if other_port!=port and pid in listener_owners(other_port,proc):
+            return {'safe':False,'reason':'shared_sshd_process','pids':pids}
     return {'safe':True,'pid':pid,'starttime':starttime,'port':port}
+
+
+def terminate_scoped_session(port,proc=pathlib.Path('/proc'),main_pid=None,expected_uid=None,
+                             open_pidfd=None,send_pidfd=None):
+    """Terminate exactly one verified sshd session using Linux race-safe pidfd.
+
+    Never fall back to kill(pid): the process ID could be reused after inspection.
+    Production integration is subject to separate approval and full E2E tests.
+    """
+    if open_pidfd is None:open_pidfd=os.pidfd_open
+    if send_pidfd is None:send_pidfd=signal.pidfd_send_signal
+    previous=inspected_target(port,proc,main_pid,expected_uid)
+    if not previous['safe']:return previous
+    fd=open_pidfd(previous['pid'])
+    try:
+        current=inspected_target(port,proc,main_pid,expected_uid)
+        if not current['safe'] or current['pid']!=previous['pid'] or current['starttime']!=previous['starttime']:
+            return {'safe':False,'reason':'process_changed_during_validation'}
+        send_pidfd(fd,signal.SIGTERM,None,0)
+        return {'safe':True,'pid':previous['pid'],'signal':'SIGTERM'}
+    finally:
+        os.close(fd)
 
 
 def main():
