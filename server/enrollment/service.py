@@ -223,6 +223,22 @@ class Enrollment:
         return True
 
 
+    def reap_expired(self,keys_file,close_slot):
+        """Retry unfinished revocations and expire approved leases; never free live ports."""
+        with self.db() as d:
+            rows=d.execute('SELECT ticket,status FROM requests WHERE status="revoking" OR (status="approved" AND expires_at IS NOT NULL AND expires_at<=?)', (int(time.time()),)).fetchall()
+        summary={'checked':len(rows),'revoked':0,'retry_needed':0}
+        for row in rows:
+            try:
+                if row['status']=='approved':
+                    self.revoke(row['ticket'],True,keys_file,terminal_status='revoking')
+                if self.finish_revocation(row['ticket'],close_slot):summary['revoked']+=1
+                else:summary['retry_needed']+=1
+            except (OSError,RuntimeError,ValueError,sqlite3.Error) as ex:
+                summary['retry_needed']+=1
+                print(json.dumps({'event':'gate_reaper','error_type':type(ex).__name__}),file=sys.stderr,flush=True)
+        return summary
+
 def close_reverse_session(slot,timeout_seconds=5):
     """Close only one verified MOS sshd child, not the Gate master or another user."""
     from session_guard import tcp_listeners,terminate_scoped_session
@@ -281,15 +297,24 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--db',type=Path,required=True);sub=p.add_subparsers(dest='action',required=True)
     sub.add_parser('serve');sub.add_parser('pending')
     doctor=sub.add_parser('doctor');doctor.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'));sub.add_parser('events')
-    ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--code',required=True,help='Four-character code shown in Connector (legacy five-character tickets accepted)');ap.add_argument('--slot',type=lambda v:None if v=='auto' else int(v),default=None,help='Reverse port 23000-24999, or auto (default)');ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
+    ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--code',required=True,help='Four-character code shown in Connector (legacy five-character tickets accepted)');ap.add_argument('--slot',type=lambda v:None if v=='auto' else int(v),default=None,help='Reverse port 23000-24999, or auto (default)');ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--ttl-seconds',type=int,default=0,help='Approved lease duration (0=unlimited, requires explicit policy decision)');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     rp=sub.add_parser('revoke');rp.add_argument('--ticket',required=True);rp.add_argument('--apply',action='store_true');rp.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     a=p.parse_args();db=Enrollment(a.db)
-    if a.action=='serve':ThreadingHTTPServer(('127.0.0.1',18511),handler(db)).serve_forever()
+    if a.action=='serve':
+        import threading
+        def reaper():
+            while True:
+                try:db.reap_expired(Path('/var/lib/hermes-bridge/.ssh/authorized_keys'),close_reverse_session)
+                except Exception as ex:
+                    print(json.dumps({'event':'gate_reaper','error_type':type(ex).__name__}),file=sys.stderr,flush=True)
+                time.sleep(15)
+        threading.Thread(target=reaper,daemon=True,name='mos-session-reaper').start()
+        ThreadingHTTPServer(('127.0.0.1',18511),handler(db)).serve_forever()
     elif a.action=='events':print(json.dumps(db.recent_events(),indent=2))
     elif a.action=='doctor':print(json.dumps(db.doctor(a.keys_file),ensure_ascii=False))
     elif a.action=='pending':
         with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created,code FROM requests WHERE status='pending' AND last_seen>?",(int(time.time())-900,))]))
-    elif a.action=='approve':print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file,code=a.code),indent=2))
+    elif a.action=='approve':print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file,code=a.code,approval_ttl_seconds=a.ttl_seconds),indent=2))
     elif a.action=='revoke':
         if not a.apply:
             print(json.dumps(db.revoke(a.ticket,False,a.keys_file),indent=2))
