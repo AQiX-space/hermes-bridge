@@ -145,6 +145,20 @@ class Enrollment:
             if apply:audit_event('approved',ticket,r['device'],slot)
             return {'auth_line':auth,'config':config,'dry_run':not apply,'backup':str(backup) if backup else None}
 
+    def doctor(self,keys_file):
+        """Read-only consistency inspection; never expose keys or bearer tickets."""
+        target=Path(keys_file)
+        if target.is_symlink() or not target.is_file():raise ValueError('authorized_keys must be a regular file')
+        lines=set(target.read_text().splitlines())
+        findings=[]
+        with self.db() as d:
+            rows=d.execute("SELECT device,key,slot,status FROM requests WHERE status='approved' ORDER BY device").fetchall()
+            for r in rows:
+                expected='restrict,port-forwarding,permitlisten="127.0.0.1:%s" %s' % (r['slot'],r['key'])
+                if expected not in lines:
+                    findings.append({'device':r['device'],'slot':r['slot'],'problem':'approved_key_missing'})
+        return {'ok':not findings,'approved':len(rows),'findings':findings}
+
     def revoke(self,ticket,apply=False,keys_file=None):
         """Remove one approved device key; ticket is a server-side operator identifier."""
         with self.db() as d:
@@ -222,12 +236,14 @@ def handler(db,keys_file=Path('/var/lib/hermes-bridge/.ssh/authorized_keys')):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--db',type=Path,required=True);sub=p.add_subparsers(dest='action',required=True)
-    sub.add_parser('serve');sub.add_parser('pending');sub.add_parser('events')
+    sub.add_parser('serve');sub.add_parser('pending')
+    doctor=sub.add_parser('doctor');doctor.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'));sub.add_parser('events')
     ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--code',required=True,help='Four-character code shown in Connector (legacy five-character tickets accepted)');ap.add_argument('--slot',type=lambda v:None if v=='auto' else int(v),default=None,help='Reverse port 23000-24999, or auto (default)');ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     rp=sub.add_parser('revoke');rp.add_argument('--ticket',required=True);rp.add_argument('--apply',action='store_true');rp.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     a=p.parse_args();db=Enrollment(a.db)
     if a.action=='serve':ThreadingHTTPServer(('127.0.0.1',18511),handler(db)).serve_forever()
     elif a.action=='events':print(json.dumps(db.recent_events(),indent=2))
+    elif a.action=='doctor':print(json.dumps(db.doctor(a.keys_file),ensure_ascii=False))
     elif a.action=='pending':
         with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created,code FROM requests WHERE status='pending' AND last_seen>?",(int(time.time())-900,))]))
     elif a.action=='approve':print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file,code=a.code),indent=2))
