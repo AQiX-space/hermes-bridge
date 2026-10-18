@@ -75,6 +75,19 @@ with tempfile.TemporaryDirectory() as d:
  assert auth.read_bytes()==before, 'database failure left unauthorized device key behind'
  with s.db() as conn:conn.execute('DROP TRIGGER refuse_approval')
  assert s.poll(third)=={'status':'pending'}
+ # Approved lease is expired by background Gate reaper, even without a client request.
+ with s.db() as conn:conn.execute("UPDATE requests SET expires_at=? WHERE ticket=?",(int(time.time())-1,auto_ticket))
+ simulated_live={23000}
+ def bounded_close(slot):return slot not in simulated_live
+ first=s.reap_expired(auth,bounded_close)
+ assert first['retry_needed']>=1 and s.poll(auto_ticket)['status']=='revoking',first
+ assert '127.0.0.1:23000' not in auth.read_text(), 'expired device key remains authorized'
+ assert 'existing-safe-ssh-key' in auth.read_text(), 'operator key was removed'
+ simulated_live.remove(23000)
+ second=s.reap_expired(auth,bounded_close)
+ assert second['revoked']>=1 and s.poll(auto_ticket)['status']=='revoked',second
+ assert 'existing-safe-ssh-key' in auth.read_text()
+
 
  try:s.submit('Bad',key+'\ncommand="evil"');raise Exception('bad key accepted')
  except ValueError:pass
