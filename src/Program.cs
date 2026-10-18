@@ -120,6 +120,8 @@ namespace HermesBridge {
     string link=Path.Combine(desktop,"Hermes Connector.lnk");
     string expectedRoot=Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesBridge"));
     if(!String.Equals(Path.GetFullPath(root).TrimEnd('\\'),expectedRoot.TrimEnd('\\'),StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("Неправильная папка приложения");
+    await DisconnectAsync();
+    if(revocationPending)throw new InvalidOperationException("Gate не подтвердил отзыв доступа. Повтори после восстановления связи.");
     int ownPid=Process.GetCurrentProcess().Id;
     // Detached helper waits for this process to EXIT before deleting its locked executable.
     // Remove-Item deletes directly, NOT via the Recycle Bin; never empty the whole Bin.
