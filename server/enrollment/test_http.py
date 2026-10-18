@@ -48,7 +48,16 @@ with tempfile.TemporaryDirectory() as tmp:
   except ValueError:pass
 
   assert auth.read_text()=='existing-safe-ssh-key\n', 'Key must be removed while closing'
+  # Background recovery must NOT mark the lease revoked while a listener remains.
+  unfinished=db.reap_expired(auth,close_slot)
+  assert unfinished['checked']>=1 and unfinished['retry_needed']>=1 and unfinished['revoked']==0,unfinished
+  with urllib.request.urlopen(api+'/'+ticket,timeout=3) as r: assert json.load(r)['status']=='revoking'
   allow_close['ready']=True
+  # A crashed client never retries. The Gate reaper must complete shutdown on its own.
+  completed=db.reap_expired(auth,close_slot)
+  assert completed['revoked']>=1 and completed['retry_needed']==0,completed
+  with urllib.request.urlopen(api+'/'+ticket,timeout=3) as r: assert json.load(r)['status']=='revoked'
+
   with urllib.request.urlopen(revoke,timeout=3) as r:assert r.status==200 and json.load(r)['status']=='revoked'
   with urllib.request.urlopen(revoke,timeout=3) as r:assert r.status==200 and json.load(r)['status']=='revoked'
   with urllib.request.urlopen(api+'/'+ticket,timeout=3) as r:assert json.load(r)['status']=='revoked'
