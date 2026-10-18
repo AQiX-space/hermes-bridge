@@ -276,5 +276,18 @@ def main():
     elif a.action=='pending':
         with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created,code FROM requests WHERE status='pending' AND last_seen>?",(int(time.time())-900,))]))
     elif a.action=='approve':print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file,code=a.code),indent=2))
-    elif a.action=='revoke':print(json.dumps(db.revoke(a.ticket,a.apply,a.keys_file),indent=2))
+    elif a.action=='revoke':
+        if not a.apply:
+            print(json.dumps(db.revoke(a.ticket,False,a.keys_file),indent=2))
+        else:
+            with db.db() as conn:
+                request=conn.execute('SELECT status FROM requests WHERE ticket=?',(a.ticket,)).fetchone()
+            if request is None or request['status'] not in ('approved','revoking'):
+                raise ValueError('ticket is not an approved or revoking request')
+            if request['status']=='approved':
+                db.revoke(a.ticket,True,a.keys_file,terminal_status='revoking')
+            if not db.finish_revocation(a.ticket,close_reverse_session):
+                print(json.dumps({'status':'revoking','error':'session remains open'}))
+                sys.exit(3)
+            print(json.dumps({'status':'revoked','verified_closed':True}))
 if __name__=='__main__':main()
