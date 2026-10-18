@@ -93,7 +93,7 @@ namespace HermesBridge {
   }
   async System.Threading.Tasks.Task CheckAndInstallUpdateAsync(bool automatic){
    if(updating||quitting)return;
-   if(running){if(!automatic)MessageBox.Show("Сначала отключи активный сеанс поддержки.","Обновление");return;}
+   if(running||enrolling||revoking||revocationPending){if(!automatic)MessageBox.Show("Сначала заверши текущую заявку или сеанс и дождись отзыва доступа на Gate.","Обновление");return;}
    updating=true;updates.Enabled=false;updates.Text="Проверка…";
    try {
     GitHubUpdater.Release manifest=await GitHubUpdater.CheckAsync();
@@ -104,7 +104,8 @@ namespace HermesBridge {
     if(!automatic && MessageBox.Show("Доступна версия "+manifest.tagName+". Установить?","Гермес Мост",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
     updates.Text="Загрузка и проверка обновления…";
     string staged=await GitHubUpdater.StageAsync(manifest,Path.Combine(root,"updates"));
-    if(running||quitting)return;
+    if(running||enrolling||revoking||quitting)return;
+    if(!await EnsureRevokedAsync()){Status("Обновление отменено: Gate ещё не подтвердил отзыв доступа.");return;}
     GitHubUpdater.Apply(manifest,staged);
     quitting=true;Close();
    }catch(Exception ex){
