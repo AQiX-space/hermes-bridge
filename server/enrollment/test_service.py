@@ -48,6 +48,7 @@ with tempfile.TemporaryDirectory() as d:
  assert old.code_for('L'*43) is None
  assert old.submit('LegacyPC',key)=='L'*43
  assert len(old.code_for('L'*43))==4
+ assert old.recent_events()==[], 'Migrated legacy pending request does not create a new request event'
  try:old.approve('L'*43,23010,'router-mgmt.aqixnet.com',key,code='ZZZZZ');raise AssertionError('wrong migrated code accepted')
  except ValueError:pass
  assert old.approve('L'*43,23010,'router-mgmt.aqixnet.com',key,code=old.code_for('L'*43))['dry_run']
