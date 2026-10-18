@@ -25,7 +25,7 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), shortcut=new Button(); LinkLabel updates=new LinkLabel(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(); string sshVersion=null; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false;
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(); string sshVersion=null; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; DateTime nextLeaseCheck=DateTime.MinValue;
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
    Text="Hermes Connector 0.2.3"; Width=890;Height=566;MinimumSize=new Size(890,566);MaximumSize=new Size(890,566);StartPosition=FormStartPosition.CenterScreen;
@@ -278,7 +278,15 @@ namespace HermesBridge {
   async Task StartOrEnrollAsync(){
    if(running||enrolling||revoking||revocationPending)return;
    if(!EnsureKey())return;
-   if(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known)&&File.Exists(Path.Combine(root,"approval-ticket"))){StartBridge();return;}
+   if(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known)&&File.Exists(Path.Combine(root,"approval-ticket"))){
+    try{
+     EnrollmentResult a=await EnrollmentClient.PollAsync(new Uri(EnrollmentApi),TicketStore.Read(Path.Combine(root,"approval-ticket")));
+     if(a.status=="approved"&&EnrollmentClient.Valid(a.config)&&a.config.slot.ToString()==slot.Text.Trim()&&a.config.host==host.Text.Trim()){
+      StartBridge();return;
+     }
+     Status("Прежнее разрешение на Gate больше не действует. Требуется новый запрос.");ClearLocalApproval();
+    }catch(Exception ex){Status("Невозможно проверить ранее выданное разрешение: "+ex.Message);return;}
+   }
    enrolling=true;cancelEnrollment=false;int generation=++enrollmentGeneration;Status("Отправляем заявку на доступ…");
    try{
     Uri endpoint=new Uri(EnrollmentApi);
@@ -373,6 +381,21 @@ namespace HermesBridge {
   DateTime retryAt=DateTime.MinValue;
   async Task TickAsync(){
    if(!running)return;
+   if(!leaseCheckBusy&&DateTime.UtcNow>=nextLeaseCheck){
+    leaseCheckBusy=true;nextLeaseCheck=DateTime.UtcNow.AddSeconds(15);
+    try{
+     string f=Path.Combine(root,"approval-ticket");
+     if(File.Exists(f)){
+      EnrollmentResult a=await EnrollmentClient.PollAsync(new Uri(EnrollmentApi),TicketStore.Read(f));
+      if(running&&a.status!="approved"){
+       StopBridge();revocationPending=false;ClearLocalApproval();
+       Status("Gate прекратил разрешение ("+a.status+"). Канал закрыт; новый доступ требует МОСТ.");return;
+      }
+     }
+    }catch(WebException){/* transient HTTPS failure: SSH keepalive independently detects the tunnel */}
+    catch(Exception ex){Status("Проверка разрешения Gate: "+ex.Message);}
+    finally{leaseCheckBusy=false;}
+   }
    if(DateTime.UtcNow>=deadline){await DisconnectAsync();Status("Время сессии истекло; проверяем отзыв разрешения на Gate.");return;}
    if(tunnel!=null&&!tunnel.HasExited)return;
    if(tunnel!=null){forwardConfirmed=false;Status(lastTunnelFailure.Length>0?lastTunnelFailure+" Повторное подключение…":"SSH-канал прерван. Повторное подключение…");}
