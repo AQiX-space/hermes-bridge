@@ -6,6 +6,7 @@ import pathlib
 import subprocess
 import tempfile
 import unittest
+import uuid
 from mos_operator import diagnostic,validate
 
 class OperatorTests(unittest.TestCase):
@@ -27,6 +28,8 @@ class OperatorTests(unittest.TestCase):
    rows=[json.loads(s) for s in path.read_text().splitlines()]
    self.assertEqual(len(rows),1)
    self.assertEqual(rows[0]['result'],'success')
+   self.assertTrue(rows[0]['operator_os_user'])
+   self.assertEqual(str(uuid.UUID(rows[0]['action_id'])),rows[0]['action_id'])
    self.assertEqual(rows[0]['stdout_sha256'],hashlib.sha256(output).hexdigest())
    self.assertNotIn('SECRET_SENSITIVE',path.read_text())
    self.assertNotIn('secret-for-test',path.read_text())

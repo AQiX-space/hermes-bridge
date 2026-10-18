@@ -6,6 +6,8 @@ import argparse
 import base64
 import datetime
 import hashlib
+import getpass
+import uuid
 import json
 import os
 import pathlib
@@ -61,6 +63,8 @@ def diagnostic(host,slot,user,key,audit,timeout=40,runner=subprocess.run):
          '-i',str(key),'-J',host,'-p',str(slot),user+'@127.0.0.1',
          'powershell.exe -NoProfile -NonInteractive -EncodedCommand '+ps]
     started=datetime.datetime.now(datetime.timezone.utc).isoformat()
+    action_id=str(uuid.uuid4())
+    operator_user=getpass.getuser()
     outcome='transport_error';exit_code=None;stdout=b''
     try:
         result=runner(cmd,timeout=timeout,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -70,7 +74,7 @@ def diagnostic(host,slot,user,key,audit,timeout=40,runner=subprocess.run):
         outcome='timeout'
     finally:
         # Deliberately exclude raw command output, ticket, SSH key material and IP addresses.
-        record(audit,{'time_utc':started,'action':'diagnose','gateway':host,
+        record(audit,{'time_utc':started,'action_id':action_id,'operator_os_user':operator_user,'action':'diagnose','gateway':host,
                       'slot':slot,'windows_user':user,'result':outcome,'exit_code':exit_code,
                       'stdout_sha256':hashlib.sha256(stdout).hexdigest() if stdout else None})
     if outcome!='success':raise RuntimeError('MOS diagnostic failed: '+outcome)
