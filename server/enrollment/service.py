@@ -159,7 +159,7 @@ class Enrollment:
                     findings.append({'device':r['device'],'slot':r['slot'],'problem':'approved_key_missing'})
         return {'ok':not findings,'approved':len(rows),'findings':findings}
 
-    def revoke(self,ticket,apply=False,keys_file=None):
+    def revoke(self,ticket,apply=False,keys_file=None,terminal_status="revoked"):
         """Remove one approved device key; ticket is a server-side operator identifier."""
         with self.db() as d:
             r=d.execute("SELECT * FROM requests WHERE ticket=? AND status='approved'",(ticket,)).fetchone()
@@ -187,8 +187,9 @@ class Enrollment:
             finally:
                 if os.path.exists(tmp):os.unlink(tmp)
             try:
-                d.execute("UPDATE requests SET status='revoked' WHERE ticket=? AND status='approved'",(ticket,))
-                self.audit(d,'revoked',r)
+                if terminal_status not in ('revoked','revoking'):raise ValueError('invalid revoke state')
+                d.execute('UPDATE requests SET status=? WHERE ticket=? AND status="approved"',(terminal_status,ticket))
+                self.audit(d,'revoked' if terminal_status=='revoked' else 'revoking',r)
                 d.commit()
             except Exception:
                 shutil.copy2(backup,target)
@@ -196,7 +197,32 @@ class Enrollment:
             audit_event('revoked',ticket,r['device'],config['slot'])
             return {'dry_run':False,'device':r['device'],'slot':config['slot'],'backup':str(backup)}
 
-def handler(db,keys_file=Path('/var/lib/hermes-bridge/.ssh/authorized_keys')):
+    def finish_revocation(self,ticket,close_slot):
+        with self.db() as d:
+            row=d.execute('SELECT * FROM requests WHERE ticket=? AND status="revoking"',(ticket,)).fetchone()
+        if row is None:raise ValueError('not a revoking request')
+        if not close_slot(row['slot']):return False
+        with self.db() as d:
+            d.execute('UPDATE requests SET status="revoked" WHERE ticket=? AND status="revoking"',(ticket,))
+            self.audit(d,'revoked',row)
+        audit_event('revoked',ticket,row['device'],row['slot'])
+        return True
+
+
+def close_reverse_session(slot,timeout_seconds=5):
+    """Close only one verified MOS sshd child, not the Gate master or another user."""
+    from session_guard import tcp_listeners,terminate_scoped_session
+    if not isinstance(slot,int) or not 23000<=slot<=24999:raise ValueError('invalid slot')
+    if slot not in tcp_listeners():return True
+    result=terminate_scoped_session(slot,expected_uid=os.getuid())
+    if not result['safe']:raise RuntimeError('cannot safely close reverse tunnel: '+result['reason'])
+    until=time.monotonic()+timeout_seconds
+    while time.monotonic()<until:
+        if slot not in tcp_listeners():return True
+        time.sleep(.1)
+    return slot not in tcp_listeners()
+
+def handler(db,keys_file=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'),close_slot=close_reverse_session):
     class Handler(BaseHTTPRequestHandler):
         def send(self,code,data):
             b=json.dumps(data).encode();self.send_response(code);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
@@ -214,7 +240,10 @@ def handler(db,keys_file=Path('/var/lib/hermes-bridge/.ssh/authorized_keys')):
                         row=conn.execute('SELECT status FROM requests WHERE ticket=?',(ticket,)).fetchone()
                     if row is None:return self.send(404,{'error':'not found'})
                     if row['status']=='approved':
-                        db.revoke(ticket,apply=True,keys_file=keys_file)
+                        db.revoke(ticket,apply=True,keys_file=keys_file,terminal_status='revoking')
+                    if row['status'] in ('approved','revoking'):
+                        if not db.finish_revocation(ticket,close_slot):
+                            return self.send(503,{'status':'revoking','error':'reverse tunnel still active'})
                     elif row['status']=='pending':
                         with db.db() as conn:conn.execute("UPDATE requests SET status='revoked' WHERE ticket=? AND status='pending'",(ticket,))
                     return self.send(200,{'status':'revoked'})
