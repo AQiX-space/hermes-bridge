@@ -388,6 +388,11 @@ namespace HermesBridge {
      string f=Path.Combine(root,"approval-ticket");
      if(File.Exists(f)){
       EnrollmentResult a=await EnrollmentClient.PollAsync(new Uri(EnrollmentApi),TicketStore.Read(f));
+      if(running&&a.status=="revoking"){
+       // Keep the ticket for retry until Gate verifies the reverse session is gone.
+       await DisconnectAsync();
+       return;
+      }
       if(running&&a.status!="approved"){
        StopBridge();revocationPending=false;ClearLocalApproval();
        Status("Gate прекратил разрешение ("+a.status+"). Канал закрыт; новый доступ требует МОСТ.");return;
