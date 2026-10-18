@@ -130,7 +130,6 @@ namespace HermesBridge {
      "if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){exit 4};"+
      "$targets=@("+PsLiteral(exe)+","+PsLiteral(link)+","+PsLiteral(expectedRoot)+");"+
      "foreach($target in $targets){for($retry=0;$retry -lt 10;$retry++){try{Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop;break}catch{Start-Sleep -Milliseconds 500}}}";
-    if(!await EnsureRevokedAsync())return;
     string encoded=Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
     Process.Start(new ProcessStartInfo("powershell.exe","-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "+encoded){UseShellExecute=false,CreateNoWindow=true});
     quitting=true;Close();
