@@ -88,7 +88,7 @@ namespace HermesBridge {
    updateTimer.Tick+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
    updateTimer.Start();
    Shown+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
-   heartbeat.Interval=2000;heartbeat.Tick+=(s,e)=>Tick();heartbeat.Start();
+   heartbeat.Interval=2000;heartbeat.Tick+=async (s,e)=>await TickAsync();heartbeat.Start();
    LoadSettings();EnsureDesktopShortcut();FormClosing+=(s,e)=>{if(!quitting){e.Cancel=true;Hide();}else{StopBridge();tray.Visible=false;tray.Dispose();if(connectedTrayIcon!=null)connectedTrayIcon.Dispose();}};
   }
   async System.Threading.Tasks.Task CheckAndInstallUpdateAsync(bool automatic){
@@ -113,7 +113,7 @@ namespace HermesBridge {
    }finally{updating=false;updates.Enabled=true;if(!quitting)updates.Text=updateAvailable?"● Обновить":"Проверить";updates.LinkColor=updateAvailable?Color.FromArgb(36,133,78):blue;}
   }
   async Task UninstallConnectorAsync(){
-   if(MessageBox.Show("Окончательно удалить Connector и его локальные ключи, настройки, обновления и ярлык?\n\nТуннель отключится; серверное разрешение Hermes Gate нужно отозвать отдельно.","Удаление Hermes Connector",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
+   if(MessageBox.Show("Окончательно удалить Connector и его локальные ключи, настройки, обновления и ярлык?\n\nТуннель будет остановлен, серверное разрешение должно быть отозвано до удаления.","Удаление Hermes Connector",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;
    try{
     string exe=System.Reflection.Assembly.GetExecutingAssembly().Location;
     string desktop=Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
@@ -131,6 +131,7 @@ namespace HermesBridge {
      "if(Get-Process -Id $pidToWait -ErrorAction SilentlyContinue){exit 4};"+
      "$targets=@("+PsLiteral(exe)+","+PsLiteral(link)+","+PsLiteral(expectedRoot)+");"+
      "foreach($target in $targets){for($retry=0;$retry -lt 10;$retry++){try{Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop;break}catch{Start-Sleep -Milliseconds 500}}}";
+    if(!await EnsureRevokedAsync())return;
     string encoded=Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
     Process.Start(new ProcessStartInfo("powershell.exe","-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "+encoded){UseShellExecute=false,CreateNoWindow=true});
     quitting=true;Close();
@@ -371,9 +372,9 @@ namespace HermesBridge {
    }catch(Exception ex){Status("Ошибка подключения: "+ex.Message);}
   }
   DateTime retryAt=DateTime.MinValue;
-  void Tick(){
+  async Task TickAsync(){
    if(!running)return;
-   if(DateTime.UtcNow>=deadline){_ = DisconnectAsync();Status("Время сессии истекло; проверяем отзыв разрешения на Gate.");return;}
+   if(DateTime.UtcNow>=deadline){await DisconnectAsync();Status("Время сессии истекло; проверяем отзыв разрешения на Gate.");return;}
    if(tunnel!=null&&!tunnel.HasExited)return;
    if(tunnel!=null){forwardConfirmed=false;Status(lastTunnelFailure.Length>0?lastTunnelFailure+" Повторное подключение…":"SSH-канал прерван. Повторное подключение…");}
    if(DateTime.UtcNow<retryAt)return;
