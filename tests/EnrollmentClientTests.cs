@@ -11,7 +11,13 @@ class EnrollmentClientTests {
   c.hostkey="ssh-rsa "+b64;Check(!EnrollmentClient.Valid(c),"reject unsupported host key");c.hostkey="ssh-ed25519 "+b64;
   string d=Path.Combine(Path.GetTempPath(),"hermes-enroll-test-"+Guid.NewGuid().ToString("N"));
   try{EnrollmentClient.SaveApproved(c,d);Check(File.ReadAllText(Path.Combine(d,"known_hosts")).Contains("[router-mgmt.aqixnet.com]:22471 ssh-ed25519"),"saved pinned known_hosts");
-   Check(File.ReadAllText(Path.Combine(d,"approved-bridge.cfg")).Contains("slot=23001"),"approved reverse port stored");}
+   Check(File.ReadAllText(Path.Combine(d,"approved-bridge.cfg")).Contains("slot=23001"),"approved reverse port stored");
+   string ticket=new String('A',43);string f=Path.Combine(d,"approval-ticket");
+   EnrollmentClient.SaveTicket(f,ticket);
+   Check(!File.ReadAllText(f).Contains(ticket),"approval bearer ticket encrypted at rest");
+   Check(EnrollmentClient.LoadTicket(f)==ticket,"DPAPI ticket roundtrip");
+   File.WriteAllText(f,ticket);Check(EnrollmentClient.LoadTicket(f)==ticket,"legacy plaintext ticket migration");
+   Check(File.ReadAllText(f).StartsWith("dpapi:"),"legacy ticket encrypted after migration");}
   finally{if(Directory.Exists(d))Directory.Delete(d,true);}
   return 0;
  }

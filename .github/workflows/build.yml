@@ -68,7 +68,7 @@ jobs:
         shell: pwsh
         run: |
           $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-          & $csc /nologo /target:exe /out:EnrollmentClientTests.exe /reference:System.Web.Extensions.dll src\EnrollmentClient.cs tests\EnrollmentClientTests.cs
+          & $csc /nologo /target:exe /out:EnrollmentClientTests.exe /reference:System.Web.Extensions.dll /reference:System.Security.dll src\EnrollmentClient.cs tests\EnrollmentClientTests.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\EnrollmentClientTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

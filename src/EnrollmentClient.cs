@@ -50,6 +50,27 @@ namespace HermesBridge {
     }
    });
   }
+  // DPAPI: bearer ticket readable only in this Windows user's security context.
+  // Legacy plaintext tickets are accepted only for one-time migration.
+  public static void SaveTicket(string path,string ticket){
+   if(!Regex.IsMatch(ticket??"",@"^[a-zA-Z0-9_-]{40,60}$"))throw new InvalidDataException("Invalid approval ticket");
+   byte[] encrypted=ProtectedData.Protect(Encoding.ASCII.GetBytes(ticket),null,DataProtectionScope.CurrentUser);
+   string temporary=path+"."+Guid.NewGuid().ToString("N")+".tmp";
+   try{File.WriteAllText(temporary,"dpapi:"+Convert.ToBase64String(encrypted),Encoding.ASCII);
+    if(File.Exists(path))File.Replace(temporary,path,null);else File.Move(temporary,path);
+   }finally{if(File.Exists(temporary))File.Delete(temporary);}
+  }
+  public static string LoadTicket(string path){
+   string stored=File.ReadAllText(path,Encoding.ASCII).Trim();
+   if(stored.StartsWith("dpapi:",StringComparison.Ordinal)){
+    var value=Encoding.ASCII.GetString(ProtectedData.Unprotect(Convert.FromBase64String(stored.Substring(6)),null,DataProtectionScope.CurrentUser));
+    if(!Regex.IsMatch(value,@"^[a-zA-Z0-9_-]{40,60}$"))throw new InvalidDataException("Invalid decrypted ticket");
+    return value;
+   }
+   if(!Regex.IsMatch(stored,@"^[a-zA-Z0-9_-]{40,60}$"))throw new InvalidDataException("Invalid legacy ticket");
+   SaveTicket(path,stored);
+   return stored;
+  }
   public static async Task<bool> RevokeAsync(Uri endpoint,string ticket){
    CheckEndpoint(endpoint);if(!Regex.IsMatch(ticket??"",@"^[a-zA-Z0-9_-]{40,60}$"))throw new InvalidDataException("Bad revoke ticket");
    return await Task.Run(()=>{
