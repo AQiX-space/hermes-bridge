@@ -1,3 +1,6 @@
+import sys
+import pathlib
+sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]/"server"/"enrollment"))
 """Linux-only real pidfd smoke test in an isolated child process, NEVER sshd."""
 import os
 import pathlib
@@ -7,7 +10,7 @@ import sys
 import tempfile
 import time
 from test_gate_session_guard import setup, PORT
-from gate_session_guard import terminate_scoped_session
+from session_guard import terminate_scoped_session
 
 if not sys.platform.startswith('linux') or not hasattr(os,'pidfd_open') or not hasattr(signal,'pidfd_send_signal'):
     raise SystemExit('Linux with pidfd support required')

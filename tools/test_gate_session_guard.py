@@ -1,7 +1,10 @@
+import sys
+import pathlib
+sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]/"server"/"enrollment"))
 import os
 import pathlib
 import tempfile
-from gate_session_guard import inspected_target, listener_owners, tcp_listeners, terminate_scoped_session
+from session_guard import inspected_target, listener_owners, tcp_listeners, terminate_scoped_session
 
 PORT=23021
 
