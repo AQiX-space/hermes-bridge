@@ -38,5 +38,16 @@ with tempfile.TemporaryDirectory() as tmp:
    urllib.request.urlopen(req,timeout=3)
    raise AssertionError('unbounded registration accepted')
   except urllib.error.HTTPError as e:assert e.code==429
-  print('PASS HTTP enrollment request, pending poll, approved config, per-device rate limit')
+  # Pending-ticket cancellation is an explicit server-side terminal state.
+  cancel_key='ssh-ed25519 '+base64.b64encode(b'\0\0\0\x0bssh-ed25519\0\0\0\x20'+bytes((i+9)%256 for i in range(32))).decode()
+  cancel_request=urllib.request.Request(api,json.dumps({'device':'CancelPC','public_key':cancel_key}).encode(),headers={'Content-Type':'application/json'})
+  with urllib.request.urlopen(cancel_request,timeout=3) as r:cancelled=json.load(r)['ticket']
+  cancel=urllib.request.Request(api+'/revoke',json.dumps({'ticket':cancelled}).encode(),headers={'Content-Type':'application/json'})
+  with urllib.request.urlopen(cancel,timeout=3) as r:assert r.status==200 and json.load(r)['status']=='revoked'
+  with urllib.request.urlopen(api+'/'+cancelled,timeout=3) as r:assert json.load(r)['status']=='revoked'
+  try:
+   db.approve(cancelled,None,'test-gateway.example',key,code=db.code_for(cancelled))
+   raise AssertionError('cancelled request was approvable')
+  except ValueError:pass
+  print('PASS HTTP enrollment, per-device rate limit, approved revoke and pending cancel')
  finally:web.shutdown();web.server_close();thread.join(timeout=3)
