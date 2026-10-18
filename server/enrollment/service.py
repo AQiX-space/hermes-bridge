@@ -36,6 +36,8 @@ class Enrollment:
             if not any(c[1]=='last_seen' for c in d.execute('PRAGMA table_info(requests)')):d.execute('ALTER TABLE requests ADD COLUMN last_seen INTEGER')
             d.execute('UPDATE requests SET last_seen=created WHERE last_seen IS NULL')
             d.execute('CREATE TABLE IF NOT EXISTS audit_events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, event TEXT NOT NULL, device TEXT NOT NULL, slot INTEGER, ticket_hash TEXT NOT NULL)')
+            if not any(c[1]=='actor' for c in d.execute('PRAGMA table_info(audit_events)')):
+                d.execute('ALTER TABLE audit_events ADD COLUMN actor TEXT')
     @contextmanager
     def db(self):
         c=sqlite3.connect(self.path,timeout=15);c.row_factory=sqlite3.Row
@@ -48,14 +50,15 @@ class Enrollment:
         finally:
             c.close()
     @staticmethod
-    def audit(d,event,request):
+    def audit(d,event,request,actor='system'):
         # Only a non-reversible ticket digest; never store bearer tokens or full keys in the event log.
         import hashlib
-        d.execute('INSERT INTO audit_events(ts,event,device,slot,ticket_hash) VALUES(?,?,?,?,?)',
-                  (int(time.time()),event,request['device'],request['slot'],hashlib.sha256(request['ticket'].encode()).hexdigest()))
+        if not re.fullmatch(r'[a-zA-Z0-9_@.:-]{1,80}',actor):actor='unknown'
+        d.execute('INSERT INTO audit_events(ts,event,device,slot,ticket_hash,actor) VALUES(?,?,?,?,?,?)',
+                  (int(time.time()),event,request['device'],request['slot'],hashlib.sha256(request['ticket'].encode()).hexdigest(),actor))
     def recent_events(self,limit=50):
         with self.db() as d:
-            return [dict(row) for row in d.execute('SELECT ts,event,device,slot,ticket_hash FROM audit_events ORDER BY id DESC LIMIT ?',(min(max(1,int(limit)),200),))]
+            return [dict(row) for row in d.execute('SELECT ts,event,device,slot,ticket_hash,actor FROM audit_events ORDER BY id DESC LIMIT ?',(min(max(1,int(limit)),200),))]
     def submit(self,device,key):
         if not isinstance(device,str) or not re.fullmatch(r'[a-zA-Z0-9._-]{1,64}',device):raise ValueError('bad device')
         key=public_key(key)
@@ -141,7 +144,7 @@ class Enrollment:
                     if os.path.exists(tmp):os.unlink(tmp)
                 try:
                     d.execute('UPDATE requests SET status=?,slot=?,config=? WHERE ticket=?',('approved',slot,json.dumps(config),ticket))
-                    self.audit(d,'approved',{'ticket':ticket,'device':r['device'],'slot':slot})
+                    self.audit(d,'approved',{'ticket':ticket,'device':r['device'],'slot':slot},actor='operator:'+str(os.environ.get('SUDO_USER') or os.environ.get('USER') or 'unknown'))
                     d.commit()
                 except Exception:
                     shutil.copy2(backup,target)
@@ -193,12 +196,12 @@ class Enrollment:
             try:
                 if terminal_status not in ('revoked','revoking'):raise ValueError('invalid revoke state')
                 d.execute('UPDATE requests SET status=? WHERE ticket=? AND status="approved"',(terminal_status,ticket))
-                self.audit(d,'revoked' if terminal_status=='revoked' else 'revoking',r)
+                self.audit(d,'revoked' if terminal_status=='revoked' else 'revoking',r,actor='device-ticket' if terminal_status=='revoking' else 'operator')
                 d.commit()
             except Exception:
                 shutil.copy2(backup,target)
                 raise
-            audit_event('revoked',ticket,r['device'],config['slot'])
+            audit_event('revoked' if terminal_status=='revoked' else 'revoking',ticket,r['device'],config['slot'])
             return {'dry_run':False,'device':r['device'],'slot':config['slot'],'backup':str(backup)}
 
     def finish_revocation(self,ticket,close_slot):
@@ -208,7 +211,7 @@ class Enrollment:
         if not close_slot(row['slot']):return False
         with self.db() as d:
             d.execute('UPDATE requests SET status="revoked" WHERE ticket=? AND status="revoking"',(ticket,))
-            self.audit(d,'revoked',row)
+            self.audit(d,'revoked',row,actor='gate')
         audit_event('revoked',ticket,row['device'],row['slot'])
         return True
 
