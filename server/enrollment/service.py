@@ -34,6 +34,8 @@ class Enrollment:
             d.execute("CREATE UNIQUE INDEX approved_keys ON requests(key) WHERE status IN ('approved','revoking')")
             if not any(c[1]=='code' for c in d.execute('PRAGMA table_info(requests)')):d.execute('ALTER TABLE requests ADD COLUMN code TEXT')
             if not any(c[1]=='last_seen' for c in d.execute('PRAGMA table_info(requests)')):d.execute('ALTER TABLE requests ADD COLUMN last_seen INTEGER')
+            if not any(c[1]=='expires_at' for c in d.execute('PRAGMA table_info(requests)')):
+                d.execute('ALTER TABLE requests ADD COLUMN expires_at INTEGER')
             d.execute('UPDATE requests SET last_seen=created WHERE last_seen IS NULL')
             d.execute('CREATE TABLE IF NOT EXISTS audit_events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, event TEXT NOT NULL, device TEXT NOT NULL, slot INTEGER, ticket_hash TEXT NOT NULL)')
             if not any(c[1]=='actor' for c in d.execute('PRAGMA table_info(audit_events)')):
@@ -105,10 +107,14 @@ class Enrollment:
                 if now-r['last_seen']>900:return {'status':'expired'}
                 d.execute('UPDATE requests SET last_seen=? WHERE ticket=?',(now,ticket))
             result={'status':r['status']}
-        if r['status']=='approved':result['config']=json.loads(r['config'])
+        if r['status']=='approved':
+            if r['expires_at'] is not None and int(time.time())>=r['expires_at']:
+                result={'status':'expiring'}
+            else:result['config']=json.loads(r['config'])
         return result
-    def approve(self,ticket,slot,host,hostkey,apply=False,keys_file=None,code=None):
+    def approve(self,ticket,slot,host,hostkey,apply=False,keys_file=None,code=None,approval_ttl_seconds=0):
         if slot is not None and not 23000<=slot<=24999:raise ValueError('invalid slot')
+        if not isinstance(approval_ttl_seconds,int) or not 0<=approval_ttl_seconds<=30*86400:raise ValueError('invalid approval lifetime')
         if not re.fullmatch(r'[A-Za-z0-9.-]{3,255}',host):raise ValueError('invalid host')
         with self.db() as d:
             r=d.execute('SELECT * FROM requests WHERE ticket=? AND status=?',(ticket,'pending')).fetchone()
@@ -143,7 +149,8 @@ class Enrollment:
                 finally:
                     if os.path.exists(tmp):os.unlink(tmp)
                 try:
-                    d.execute('UPDATE requests SET status=?,slot=?,config=? WHERE ticket=?',('approved',slot,json.dumps(config),ticket))
+                    expires_at=int(time.time())+approval_ttl_seconds if approval_ttl_seconds else None
+                    d.execute('UPDATE requests SET status=?,slot=?,config=?,expires_at=? WHERE ticket=?',('approved',slot,json.dumps(config),expires_at,ticket))
                     self.audit(d,'approved',{'ticket':ticket,'device':r['device'],'slot':slot},actor='operator:'+str(os.environ.get('SUDO_USER') or os.environ.get('USER') or 'unknown'))
                     d.commit()
                 except Exception:
