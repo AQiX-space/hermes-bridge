@@ -304,11 +304,29 @@ def handler(db,keys_file=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'),clo
 def main():
     p=argparse.ArgumentParser();p.add_argument('--db',type=Path,required=True);sub=p.add_subparsers(dest='action',required=True)
     sub.add_parser('serve');sub.add_parser('pending')
+    reglist=sub.add_parser('devices')
+    regadd=sub.add_parser('register-device');regadd.add_argument('--alias',required=True);regadd.add_argument('--platform',choices=['windows','openwrt'],required=True);regadd.add_argument('--ticket',required=True)
+    regresolve=sub.add_parser('resolve-device');regresolve.add_argument('--alias',required=True)
+    regdisable=sub.add_parser('disable-device');regdisable.add_argument('--alias',required=True)
+    regenable=sub.add_parser('enable-device');regenable.add_argument('--alias',required=True)
     doctor=sub.add_parser('doctor');doctor.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'));sub.add_parser('events')
     ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--code',required=True,help='Four-character code shown in Connector (legacy five-character tickets accepted)');ap.add_argument('--slot',type=lambda v:None if v=='auto' else int(v),default=None,help='Reverse port 23000-24999, or auto (default)');ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--ttl-seconds',type=int,default=0,help='Approved lease duration (0=unlimited, requires explicit policy decision)');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     rp=sub.add_parser('revoke');rp.add_argument('--ticket',required=True);rp.add_argument('--apply',action='store_true');rp.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     a=p.parse_args();db=Enrollment(a.db)
-    if a.action=='serve':
+    if a.action in ('devices','register-device','resolve-device','disable-device','enable-device'):
+        from registry import DeviceRegistry
+        reg=DeviceRegistry(a.db)
+        if a.action=='devices':result=reg.list()
+        elif a.action=='register-device':
+            with db.db() as conn:
+                row=conn.execute("SELECT device,key,status FROM requests WHERE ticket=?",(a.ticket,)).fetchone()
+            if row is None or row['status'] not in ('approved','revoked','revoking'):raise ValueError('register only a previously verified device; never trust a pending request alone')
+            result=reg.add(a.alias,a.platform,row['device'],row['key'])
+        elif a.action=='resolve-device':result=reg.lookup_live(a.alias)
+        else:
+            reg.set_enabled(a.alias,a.action=='enable-device');result={'alias':a.alias,'enabled':a.action=='enable-device'}
+        print(json.dumps(result,ensure_ascii=False,indent=2))
+    elif a.action=='serve':
         import threading
         def reaper():
             while True:
