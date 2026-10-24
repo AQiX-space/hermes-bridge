@@ -112,7 +112,35 @@ class Enrollment:
                 result={'status':'expiring'}
             else:result['config']=json.loads(r['config'])
         return result
-    def approve(self,ticket,slot,host,hostkey,apply=False,keys_file=None,code=None,approval_ttl_seconds=0):
+    def preflight(self,code,listeners=None):
+        """Read-only operator preflight by owner-facing code, without bearer tickets or public keys.
+
+        A stopped listener does NOT authorize deleting the old SSH grant. The
+        operator must separately revoke it; this method never mutates state.
+        """
+        if not isinstance(code,str) or not re.fullmatch(r'[A-Za-z0-9]{4,5}',code):
+            raise ValueError('invalid bridge code')
+        now=int(time.time())
+        with self.db() as d:
+            all_matches=d.execute('SELECT ticket,device,key,code,last_seen,status,slot FROM requests WHERE lower(code)=lower(?)',(code,)).fetchall()
+            fresh=[r for r in all_matches if r['status']=='pending' and r['last_seen'] is not None and now-r['last_seen']<=900]
+            if len(fresh)!=1:
+                return {'status':'ambiguous' if len(fresh)>1 else ('expired' if any(r['status']== 'pending' for r in all_matches) else 'not_found'),
+                        'matching_pending':len(fresh),'code':code}
+            current=fresh[0]
+            old=d.execute("SELECT code,device,status,slot,expires_at FROM requests WHERE key=? AND ticket!=? AND status IN ('approved','revoking') ORDER BY created DESC",(current['key'],current['ticket'])).fetchall()
+        if listeners is None:
+            from session_guard import tcp_listeners
+            listeners=set(tcp_listeners())
+        blockers=[{'type':'same_key_grant','code':r['code'],'device':r['device'],
+                   'status':r['status'],'slot':r['slot'],
+                   'listener_active':r['slot'] in listeners,
+                   'expires_at':r['expires_at'],
+                   'same_device':r['device']==current['device']} for r in old]
+        return {'status':'blocked' if blockers else 'ready','code':current['code'],
+                'device':current['device'],'blockers':blockers}
+
+    def approve(self,ticket,slot,host,hostkey,apply=False,keys_file=None,code=None,approval_ttl_seconds=7200):
         if slot is not None and not 23000<=slot<=24999:raise ValueError('invalid slot')
         if not isinstance(approval_ttl_seconds,int) or not 0<=approval_ttl_seconds<=30*86400:raise ValueError('invalid approval lifetime')
         if not re.fullmatch(r'[A-Za-z0-9.-]{3,255}',host):raise ValueError('invalid host')
@@ -125,7 +153,9 @@ class Enrollment:
                 slot=next((candidate for candidate in range(23000,25000) if candidate not in used),None)
                 if slot is None:raise ValueError('no available reverse ports')
             if d.execute("SELECT 1 FROM requests WHERE status IN ('approved','revoking') AND slot=?",(slot,)).fetchone():raise ValueError('slot already assigned')
-            if d.execute("SELECT 1 FROM requests WHERE status IN ('approved','revoking') AND key=?",(r['key'],)).fetchone():raise ValueError('key already registered')
+            blocker=d.execute("SELECT device,code,status,slot FROM requests WHERE status IN ('approved','revoking') AND key=?",(r['key'],)).fetchone()
+            if blocker:raise ValueError('same key already reserved by %s session %s on %s (slot %s); inspect preflight and revoke separately' %
+                                        (blocker['status'],blocker['code'],blocker['device'],blocker['slot']))
             config={'host':host,'port':22471,'slot':slot,'hostkey':public_key(hostkey)}
             auth='restrict,port-forwarding,permitlisten="127.0.0.1:%s" %s' % (slot,r['key'])
             backup=None
@@ -158,6 +188,77 @@ class Enrollment:
                     raise
             if apply:audit_event('approved',ticket,r['device'],slot)
             return {'auth_line':auth,'config':config,'dry_run':not apply,'backup':str(backup) if backup else None}
+
+    def replace_stale(self,old_ticket,new_ticket,code,host,hostkey,keys_file,
+                      slot=None,apply=False,ttl_seconds=7200,listeners=None):
+        """Explicit operator-approved same-device/same-key handover, never automatic.
+
+        Fail closed if old session listens. Revoke fully before approval so unique
+        key/port constraints remain intact. A failure between stages leaves old
+        access revoked and new ticket pending; no access is widened silently.
+        """
+        now=int(time.time())
+        with self.db() as d:
+            old=d.execute('SELECT * FROM requests WHERE ticket=? AND status="approved"',(old_ticket,)).fetchone()
+            new=d.execute('SELECT * FROM requests WHERE ticket=? AND status="pending"',(new_ticket,)).fetchone()
+        if old is None or new is None or old_ticket==new_ticket:
+            raise ValueError('expected distinct approved old and pending new tickets')
+        if old['device']!=new['device'] or old['key']!=new['key']:
+            raise ValueError('handover requires exact same device and key')
+        if new['code']!=code or new['last_seen'] is None or now-new['last_seen']>900:
+            raise ValueError('new confirmation code mismatch or stale pending ticket')
+        if old['slot'] is None or not 23000<=old['slot']<=24999:
+            raise ValueError('old reverse slot invalid')
+        if listeners is None:
+            from session_guard import tcp_listeners
+            listeners=set(tcp_listeners())
+        if old['slot'] in listeners:
+            raise ValueError('old tunnel is still listening; do not replace active session')
+        # Dry-run validates the fresh ticket, slot, host key, and no other DB conflicts.
+        # Reserve the old slot for old until fully revoked; choose an independent slot.
+        preview=self.preflight(code,listeners=listeners)
+        blockers=preview.get('blockers',[])
+        if len(blockers)!=1 or blockers[0]['code']!=old['code'] or blockers[0]['slot']!=old['slot']:
+            raise ValueError('handover requires exactly one matching old grant')
+        dry_slot=slot
+        if dry_slot is None:
+            with self.db() as d:
+                used={r[0] for r in d.execute("SELECT slot FROM requests WHERE status IN ('approved','revoking') AND slot IS NOT NULL")}
+            dry_slot=next((n for n in range(23000,25000) if n not in used),None)
+        if dry_slot is None or not 23000<=dry_slot<=24999 or dry_slot==old['slot']:
+            raise ValueError('handover requires valid distinct temporary port')
+        with self.db() as d:
+            if d.execute("SELECT 1 FROM requests WHERE status IN ('approved','revoking') AND slot=?",(dry_slot,)).fetchone():
+                raise ValueError('replacement port already reserved')
+        target=Path(keys_file)
+        if target.is_symlink() or not target.is_file():raise ValueError('invalid authorized_keys target')
+        lines=target.read_text().splitlines()
+        old_auth='restrict,port-forwarding,permitlisten="127.0.0.1:%s" %s' % (old['slot'],old['key'])
+        if lines.count(old_auth)!=1:
+            raise ValueError('old SSH grant must exist exactly once')
+        if any(line!=old_auth and line.endswith(' '+old['key']) for line in lines):
+            raise ValueError('same key has an unexpected additional SSH authorization')
+        if not re.fullmatch(r'[A-Za-z0-9.-]{3,255}',host):raise ValueError('invalid host')
+        public_key(hostkey)
+        if not isinstance(ttl_seconds,int) or not 1<=ttl_seconds<=7200:
+            raise ValueError('handover TTL must be between 1 and 7200 seconds')
+        if not apply:
+            return {'dry_run':True,'device':old['device'],'old_code':old['code'],
+                    'new_code':new['code'],'old_slot':old['slot'],'new_slot':dry_slot}
+        # Check listener again immediately before the first write. Avoid a broad kill.
+        from session_guard import tcp_listeners
+        if old['slot'] in tcp_listeners():
+            raise ValueError('old tunnel became active; handover cancelled')
+        self.revoke(old_ticket,apply=True,keys_file=keys_file,terminal_status='revoking')
+        # Fail closed on any race: do not disconnect an active session implicitly.
+        if not self.finish_revocation(old_ticket,lambda old_slot: old_slot not in tcp_listeners()):
+            raise RuntimeError('old tunnel appeared after authorization removal; old ticket revoking, new ticket still pending')
+        result=self.approve(new_ticket,dry_slot,host,hostkey,apply=True,keys_file=keys_file,
+                            code=code,approval_ttl_seconds=ttl_seconds)
+        return {'dry_run':False,'status':'approved','device':old['device'],
+                'old_code':old['code'],'new_code':new['code'],
+                'old_slot':old['slot'],'new_slot':result['config']['slot'],
+                'backup':result['backup']}
 
     def doctor(self,keys_file):
         """Read-only reconciliation of active DB grants and SSH keys, no secret values."""
@@ -304,14 +405,16 @@ def handler(db,keys_file=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'),clo
 def main():
     p=argparse.ArgumentParser();p.add_argument('--db',type=Path,required=True);sub=p.add_subparsers(dest='action',required=True)
     sub.add_parser('serve');sub.add_parser('pending')
+    pf=sub.add_parser('preflight',help='Read-only MOS lookup and duplicate-key grant diagnostics');pf.add_argument('--code',required=True)
     reglist=sub.add_parser('devices')
     regadd=sub.add_parser('register-device');regadd.add_argument('--alias',required=True);regadd.add_argument('--platform',choices=['windows','openwrt'],required=True);regadd.add_argument('--ticket',required=True)
     regresolve=sub.add_parser('resolve-device');regresolve.add_argument('--alias',required=True)
     regdisable=sub.add_parser('disable-device');regdisable.add_argument('--alias',required=True)
     regenable=sub.add_parser('enable-device');regenable.add_argument('--alias',required=True)
     doctor=sub.add_parser('doctor');doctor.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'));sub.add_parser('events')
-    ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--code',required=True,help='Four-character code shown in Connector (legacy five-character tickets accepted)');ap.add_argument('--slot',type=lambda v:None if v=='auto' else int(v),default=None,help='Reverse port 23000-24999, or auto (default)');ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--ttl-seconds',type=int,default=0,help='Approved lease duration (0=unlimited, requires explicit policy decision)');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
+    ap=sub.add_parser('approve');ap.add_argument('--ticket',required=True);ap.add_argument('--code',required=True,help='Four-character code shown in Connector (legacy five-character tickets accepted)');ap.add_argument('--slot',type=lambda v:None if v=='auto' else int(v),default=None,help='Reverse port 23000-24999, or auto (default)');ap.add_argument('--host',required=True);ap.add_argument('--hostkey',required=True);ap.add_argument('--apply',action='store_true');ap.add_argument('--ttl-seconds',type=int,default=7200,help='Approved lease duration, default 7200 seconds (0=unlimited, explicit exception only)');ap.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
     rp=sub.add_parser('revoke');rp.add_argument('--ticket',required=True);rp.add_argument('--apply',action='store_true');rp.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'))
+    hp=sub.add_parser('replace-stale',help='Explicitly authorized same-key handover; refuses live reverse session');hp.add_argument('--old-ticket',required=True);hp.add_argument('--ticket',required=True);hp.add_argument('--code',required=True);hp.add_argument('--host',required=True);hp.add_argument('--hostkey',required=True);hp.add_argument('--slot',type=lambda v:None if v=='auto' else int(v),default=None);hp.add_argument('--ttl-seconds',type=int,default=7200);hp.add_argument('--keys-file',type=Path,default=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'));hp.add_argument('--apply',action='store_true')
     a=p.parse_args();db=Enrollment(a.db)
     if a.action in ('devices','register-device','resolve-device','disable-device','enable-device'):
         from registry import DeviceRegistry
@@ -338,9 +441,11 @@ def main():
         ThreadingHTTPServer(('127.0.0.1',18511),handler(db)).serve_forever()
     elif a.action=='events':print(json.dumps(db.recent_events(),indent=2))
     elif a.action=='doctor':print(json.dumps(db.doctor(a.keys_file),ensure_ascii=False))
+    elif a.action=='preflight':print(json.dumps(db.preflight(a.code),ensure_ascii=False))
     elif a.action=='pending':
         with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created,code FROM requests WHERE status='pending' AND last_seen>?",(int(time.time())-900,))]))
     elif a.action=='approve':print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file,code=a.code,approval_ttl_seconds=a.ttl_seconds),indent=2))
+    elif a.action=='replace-stale':print(json.dumps(db.replace_stale(a.old_ticket,a.ticket,a.code,a.host,a.hostkey,a.keys_file,slot=a.slot,apply=a.apply,ttl_seconds=a.ttl_seconds),indent=2))
     elif a.action=='revoke':
         if not a.apply:
             print(json.dumps(db.revoke(a.ticket,False,a.keys_file),indent=2))
