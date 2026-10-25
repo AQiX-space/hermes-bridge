@@ -5,6 +5,11 @@ class EnrollmentClientTests {
  static void Check(bool b,string s){if(!b)throw new Exception("FAILED "+s);Console.WriteLine("PASS "+s);}
  static int Main(){
   string b64=Convert.ToBase64String(new byte[]{0,0,0,11,115,115,104,45,101,100,50,53,53,49,57,0,0,0,32,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32});
+  Check(EnrollmentClient.ShouldRenewPending("expired"),"expired pending ticket is automatically renewed");
+  foreach(string terminal in new[]{"pending","approved","denied","revoked","not_found"})
+   Check(!EnrollmentClient.ShouldRenewPending(terminal),"no automatic enrollment after "+terminal);
+  string localIp=EnrollmentClient.LocalIPv4();
+  if(localIp!=null){System.Net.IPAddress parsed;Check(System.Net.IPAddress.TryParse(localIp,out parsed)&&parsed.AddressFamily==System.Net.Sockets.AddressFamily.InterNetwork,"reported diagnostic IP is IPv4");}
   var c=new EnrollmentConfig{host="router-mgmt.aqixnet.com",port=22471,slot=23001,hostkey="ssh-ed25519 "+b64};
   Check(EnrollmentClient.Valid(c),"valid pinned Gateway configuration");
   c.slot=0;Check(!EnrollmentClient.Valid(c),"reject invalid slot");c.slot=23001;

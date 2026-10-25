@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
@@ -21,13 +23,36 @@ namespace HermesBridge {
    catch{return false;}
   }
   static void CheckEndpoint(Uri u){if(u==null||u.Scheme!="https"||u.UserInfo.Length>0||u.Fragment.Length>0)throw new InvalidDataException("Enrollment requires HTTPS");}
+  public static bool ShouldRenewPending(string status){return status=="expired";}
+  // Diagnostics only. Prefer an active adapter with IPv4 default gateway;
+  // never treat the reported address as a verified authorization identity.
+  public static string LocalIPv4(){
+   try {
+    string fallback=null;
+    foreach(var nic in NetworkInterface.GetAllNetworkInterfaces()){
+     if(nic.OperationalStatus!=OperationalStatus.Up||nic.NetworkInterfaceType==NetworkInterfaceType.Loopback||nic.NetworkInterfaceType==NetworkInterfaceType.Tunnel)continue;
+     var props=nic.GetIPProperties();
+     bool gateway=false;
+     foreach(var entry in props.GatewayAddresses)if(entry.Address.AddressFamily==AddressFamily.InterNetwork&&!IPAddress.IsLoopback(entry.Address)){gateway=true;break;}
+     foreach(var address in props.UnicastAddresses){
+      var ip=address.Address;
+      if(ip.AddressFamily!=AddressFamily.InterNetwork||IPAddress.IsLoopback(ip))continue;
+      byte[] bytes=ip.GetAddressBytes();
+      if(bytes[0]==169&&bytes[1]==254)continue; // APIPA is not routable.
+      if(gateway)return ip.ToString();
+      if(fallback==null)fallback=ip.ToString();
+     }
+    }
+    return fallback;
+   }catch{return null;}
+  }
   public static async Task<EnrollmentTicket> SubmitAsync(Uri endpoint,string device,string publicKey){
    CheckEndpoint(endpoint);
    if(!Regex.IsMatch(device??"",@"^[a-zA-Z0-9._-]{1,64}$"))throw new InvalidDataException("Bad device name");
    return await Task.Run(()=>{
     ServicePointManager.SecurityProtocol|=SecurityProtocolType.Tls12;
     var req=(HttpWebRequest)WebRequest.Create(new Uri(endpoint,"/v1/enroll"));req.Method="POST";req.ContentType="application/json";req.Timeout=15000;
-    var payload=Encoding.UTF8.GetBytes(Parser.Serialize(new{device=device,public_key=publicKey.Trim()}));
+    var payload=Encoding.UTF8.GetBytes(Parser.Serialize(new{device=device,public_key=publicKey.Trim(),computer_name=Environment.MachineName,local_ipv4=LocalIPv4()}));
     if(payload.Length>4096)throw new InvalidDataException("Public key request too long");
     using(var st=req.GetRequestStream())st.Write(payload,0,payload.Length);
     using(var res=(HttpWebResponse)req.GetResponse())using(var reader=new StreamReader(res.GetResponseStream())){

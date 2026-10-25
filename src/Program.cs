@@ -28,11 +28,11 @@ namespace HermesBridge {
   TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue;
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
-   Text="Hermes Connector 0.2.5"; Width=890;Height=566;MinimumSize=new Size(890,566);MaximumSize=new Size(890,566);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.2.6"; Width=890;Height=566;MinimumSize=new Size(890,566);MaximumSize=new Size(890,566);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",19,FontStyle.Bold),Left=30,Top=24,Width=388,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="Версия 0.2.5",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
+   subtitle=new Label(){Text="Версия 0.2.6",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=28,Top=167,Width=403,Height=130,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=12;state.Width=250;state.Height=44;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=54;connectionInfo.Width=368;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
@@ -188,7 +188,7 @@ namespace HermesBridge {
    state.Text=running&&processAlive&&forwardConfirmed&&sshHealth!=null&&sshHealth.Ready?"Туннель открыт":enrolling?"Ожидаем разрешение":running?"Подключение…":"Доступ отключён";
    state.ForeColor=running&&processAlive&&forwardConfirmed&&sshHealth!=null&&sshHealth.Ready?Color.FromArgb(22,101,52):running?blue:ink;
    connectionInfo.Text=value;
-   deviceInfo.Text="Компьютер: "+(device.Text.Trim().Length>0?device.Text.Trim():Environment.MachineName);mostCode.Text=activeMostCode;
+   deviceInfo.Text="ПК: "+Environment.MachineName+" · IPv4: "+(EnrollmentClient.LocalIPv4()??"не определён");mostCode.Text=activeMostCode;
    expiryInfo.Text=running&&autoDisconnect.Checked?"Отключение: "+deadline.ToLocalTime().ToString("HH:mm"):"Автоотключение выключено";
    bool connected=running&&processAlive&&forwardConfirmed&&sshHealth!=null&&sshHealth.Ready;
    start.Visible=!running&&!enrolling&&!revoking&&!revocationPending;stop.Visible=running||enrolling||revoking||revocationPending;start.Enabled=!running&&!enrolling&&!revoking&&!revocationPending;stop.Enabled=(running||enrolling||revocationPending)&&!revoking;
@@ -349,8 +349,9 @@ namespace HermesBridge {
    enrolling=true;cancelEnrollment=false;int generation=++enrollmentGeneration;Status("Отправляем заявку на доступ…");
    try{
     Uri endpoint=new Uri(EnrollmentApi);
-    EnrollmentTicket ticket=null;
-    while(ticket==null&&!cancelEnrollment&&generation==enrollmentGeneration){
+    while(!cancelEnrollment&&generation==enrollmentGeneration){
+     EnrollmentTicket ticket=null;
+     while(ticket==null&&!cancelEnrollment&&generation==enrollmentGeneration){
      bool retry=false;
      try{ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim());}
      catch(WebException ex){
@@ -391,10 +392,19 @@ namespace HermesBridge {
       SaveSettings();enrolling=false;
       if(!cancelEnrollment)await StartBridgeAsync();return;
      }
-     if(answer.status=="expired"||answer.status=="denied"||answer.status=="revoked"){
-      throw new InvalidOperationException("Заявка завершена сервером: "+answer.status+". Для новой заявки нажми «Подключить».");
+     if(EnrollmentClient.ShouldRenewPending(answer.status)){
+      // A new code is needed only after a confirmed expiry, never after a
+      // transient 429/503 or network error; keep the same device SSH key.
+      Status("Код "+ticket.code+" истёк. Получаем новую заявку автоматически…");
+      ticket=null;
+      break;
      }
-    }
+     if(answer.status=="denied"||answer.status=="revoked"){
+      throw new InvalidOperationException("Заявка завершена сервером: "+answer.status+". Новая заявка требует ручного запуска.");
+     }
+    } // End this ticket's polling; expired tickets start a new submission.
+    if(ticket!=null)break;
+   } // End automatic expiry-recovery loop.
    }catch(Exception ex){if(generation==enrollmentGeneration&&!cancelEnrollment){enrolling=false;Status("Регистрация недоступна: "+ex.Message);}}
    finally{if(generation==enrollmentGeneration){enrolling=false;if(cancelEnrollment)Status("Запрос отменён.");}}
   }
