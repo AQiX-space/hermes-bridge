@@ -10,6 +10,7 @@ class SshServerHealthTests {
   Assert(SshServerHealth.Evaluate(true,"running",true,false,true).State==SshServerState.WrongProtocol,"not SSH protocol");
   Assert(SshServerHealth.Evaluate(true,"unknown",true,true,true).State==SshServerState.Unknown,"unknown must fail closed");
   Assert(SshServerHealth.Evaluate(true,"running",true,true,true).Ready,"SSH ready");
+  Assert(SshServerHealth.Evaluate(true,"running",true,true,true).Explanation.Contains("не проверена"),"SSH banner is not remote authentication");
   Assert(!SshServerHealth.Evaluate(true,"missing",false,false,false).Ready,"unsupported OS fail closed");
   Console.WriteLine("PASS: OpenSSH Server readiness classification");
  }

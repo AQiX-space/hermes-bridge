@@ -21,7 +21,7 @@ namespace HermesBridge {
    else if (service!="running") { result.State=SshServerState.Unknown; result.Explanation="Состояние службы sshd не удалось проверить"; }
    else if (!port) { result.State=SshServerState.PortClosed; result.Explanation="sshd работает, но 127.0.0.1:22 недоступен"; }
    else if (!sshBanner) { result.State=SshServerState.WrongProtocol; result.Explanation="Порт 22 отвечает, но не возвращает приветствие SSH"; }
-   else { result.State=SshServerState.Ready; result.Explanation="OpenSSH Server отвечает локально по SSH"; }
+   else { result.State=SshServerState.Ready; result.Explanation="OpenSSH Server отвечает локально; авторизация удалённого оператора не проверена"; }
    return result;
   }
 

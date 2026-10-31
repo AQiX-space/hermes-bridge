@@ -193,7 +193,7 @@ namespace HermesBridge {
    bool connected=running&&processAlive&&forwardConfirmed&&sshHealth!=null&&sshHealth.Ready;
    start.Visible=!running&&!enrolling&&!revoking&&!revocationPending;stop.Visible=running||enrolling||revoking||revocationPending;start.Enabled=!running&&!enrolling&&!revoking&&!revocationPending;stop.Enabled=(running||enrolling||revocationPending)&&!revoking;
    if(trayToggle!=null){trayToggle.Text=running||enrolling||revocationPending?"Отключить":"Подключить";trayToggle.Enabled=true;}
-   if(tray.Visible){tray.Icon=connected&&connectedTrayIcon!=null?connectedTrayIcon:Icon;tray.Text=connected?"Hermes Connector — подключён":enrolling?"Hermes Connector — ожидание":"Hermes Connector — отключён";}
+   if(tray.Visible){tray.Icon=connected&&connectedTrayIcon!=null?connectedTrayIcon:Icon;tray.Text=connected?"Hermes Connector — туннель открыт":enrolling?"Hermes Connector — ожидание":"Hermes Connector — отключён";}
    UpdateSshState();LogAction(value);
   }
   void LogAction(string message){
@@ -232,7 +232,7 @@ namespace HermesBridge {
     case SshServerState.ServerStopped: return "остановлен";
     case SshServerState.PortClosed: return "порт 22 недоступен";
     case SshServerState.WrongProtocol: return "ошибка SSH-протокола";
-    case SshServerState.Ready: return "готов (127.0.0.1:22)";
+    case SshServerState.Ready: return "порт 22 работает; вход Гермеса не проверен";
     case SshServerState.Unknown: return "ошибка проверки";
     default: return "не проверен";
    }
