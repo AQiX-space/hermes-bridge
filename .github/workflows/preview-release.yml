@@ -29,6 +29,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $csc /nologo /target:winexe /optimize+ /win32icon:assets\HermesConnector.ico /out:HermesBridge.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Security.dll /reference:System.ServiceProcess.dll /resource:HermesBridgeUpdater.exe,HermesBridgeUpdater.exe src\Program.cs src\TunnelProbe.cs src\SshEvents.cs src\EnrollmentClient.cs src\TicketStore.cs src\UpdateClient.cs src\GitHubUpdater.cs src\VersionInfo.cs src\SshServerHealth.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Windows Defender scan (fail closed)
+        shell: pwsh
+        run: |
+          $cmd = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
+          if (!(Test-Path -LiteralPath $cmd)) { throw 'Windows Defender command line scanner missing; fail closed' }
+          & $cmd -Scan -ScanType 3 -File (Resolve-Path HermesBridge.exe).Path
+          if ($LASTEXITCODE -ne 0) { throw "Windows Defender scan failed: $LASTEXITCODE" }
+          Write-Output 'PASS: Windows Defender scanned release binary'
       - name: Store preview in private draft for independent security check
         shell: pwsh
         env:
