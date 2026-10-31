@@ -99,6 +99,9 @@ jobs:
       - name: MOS operator audit transport tests
         shell: pwsh
         run: python tools/test_mos_operator.py
+      - name: Named MOS gateway resolution tests
+        shell: pwsh
+        run: python tools/test_mos_named.py
       - name: Scoped SSH session guard regression tests
         shell: pwsh
         run: python tools/test_gate_session_guard.py
