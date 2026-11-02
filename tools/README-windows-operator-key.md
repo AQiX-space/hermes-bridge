@@ -1,0 +1,5 @@
+# Windows operator-key enrollment (work in progress)
+
+`windows_operator_key.ps1` is an **unreleased, unverified implementation**, not an approved production procedure. It requires an explicitly trusted operator public key, a specific Windows account, verification of admin membership, a backup and actual SSH authentication test. Its default mode is read-only and `-Apply` must never be used until the Windows execution-policy and ACL restoration behaviour have been validated on MiniKo and the owner approves the concrete change to the target device.
+
+As of 2026-11-02: MiniKo `Revizor` account has SSH access, `sshd` is running, and `administrators_authorized_keys` has two keys that do not match known panel operator keys. The standard DE2 operator directories lack a key; the direct operator SSH test cannot complete without provisioning an approved identity. Running a `.ps1` file fails because Windows PowerShell defaults to Restricted (all explicit policy scopes Undefined); the machine policy was not altered. No admin keys were changed. This branch is for review and testing; do not deploy.
