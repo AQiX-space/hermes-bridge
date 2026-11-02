@@ -38,7 +38,7 @@ try {
  $added=@($existing)+@($parts[0]+' '+$parts[1]+$(if($parts.Count -eq 3){' '+$parts[2]}else{''}))
  [IO.File]::WriteAllLines($AuthorizedKeysPath,[string[]]$added,(New-Object System.Text.UTF8Encoding($false)))
  # Windows OpenSSH admin keys must be limited to Administrators and SYSTEM.
- & icacls.exe $AuthorizedKeysPath /inheritance:r /grant:r 'Administrators:F' 'SYSTEM:F' | Out-Null
+ & icacls.exe $AuthorizedKeysPath /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' | Out-Null
  if($LASTEXITCODE -ne 0){throw 'icacls failed'}
  Write-Output "OPERATOR_KEY_INSTALLED $fingerprint; BACKUP=$backup"
 } catch {

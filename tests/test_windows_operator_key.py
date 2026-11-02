@@ -8,4 +8,6 @@ def test_script_is_fail_closed():
  assert 'Administrator elevation required' in s
  assert '.backup-' in s
  assert 'icacls.exe' in s
+ assert '*S-1-5-32-544:F' in s
+ assert '*S-1-5-18:F' in s
  assert 'ALREADY_AUTHORIZED' in s
