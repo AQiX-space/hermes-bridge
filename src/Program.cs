@@ -25,14 +25,14 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), shortcut=new Button(); LinkLabel updates=new LinkLabel(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu;
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu;
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
-   Text="Hermes Connector 0.2.8"; Width=890;Height=566;MinimumSize=new Size(890,566);MaximumSize=new Size(890,566);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.2.9"; Width=890;Height=566;MinimumSize=new Size(890,566);MaximumSize=new Size(890,566);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",19,FontStyle.Bold),Left=30,Top=24,Width=388,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="Версия 0.2.8 · резерв GR2",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
+   subtitle=new Label(){Text="Версия 0.2.9 · резерв GR2",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=28,Top=167,Width=403,Height=130,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=12;state.Width=250;state.Height=44;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=54;connectionInfo.Width=368;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
@@ -91,6 +91,9 @@ namespace HermesBridge {
     gatewayMenu.DropDownItems.Add(item);
    }
    menu.Items.Add(gatewayMenu);
+   recoverMenu=new ToolStripMenuItem("Аварийный переход на GR2 (DE2 недоступен)");
+   recoverMenu.Click+=async (sender,e)=>await RecoverFromDeadGateAsync();
+   menu.Items.Add(recoverMenu);
    menu.Items.Add("Выход",null,async (s,e)=>await ExitWithRevokeAsync());tray.ContextMenuStrip=menu;
    // Automatic updates only while remote support is disconnected. Signed manifest required.
    updateTimer.Interval=6*60*60*1000;
@@ -102,7 +105,7 @@ namespace HermesBridge {
   }
   async System.Threading.Tasks.Task CheckAndInstallUpdateAsync(bool automatic){
    if(updating||quitting)return;
-   if(running||enrolling||revoking||revocationPending){if(!automatic)MessageBox.Show("Сначала заверши текущую заявку или сеанс и дождись отзыва доступа на Gate.","Обновление");return;}
+   if(running||enrolling||revoking){if(!automatic)MessageBox.Show("Сначала останови локальный туннель или текущую регистрацию.","Обновление");return;}
    updating=true;updates.Enabled=false;updates.Text="Проверка…";
    try {
     GitHubUpdater.Release manifest=await GitHubUpdater.CheckAsync();
@@ -114,7 +117,14 @@ namespace HermesBridge {
     updates.Text="Загрузка и проверка обновления…";
     string staged=await GitHubUpdater.StageAsync(manifest,Path.Combine(root,"updates"));
     if(running||enrolling||revoking||quitting)return;
-    if(!await EnsureRevokedAsync()){Status("Обновление отменено: Gate ещё не подтвердил отзыв доступа.");return;}
+    // Updating application bytes is not granting access. Preserve all old
+    // tickets, DPAPI secrets and keys; never mark an unreachable Gate revoked.
+    if(revocationPending||File.Exists(Path.Combine(root,"approval-ticket"))){
+     if(MessageBox.Show("Gate пока не подтвердил отзыв. Локальный SSH-туннель закрыт.\n\n"+
+        "Можно обновить только приложение, СОХРАНИВ старое разрешение и ключ для последующего отзыва. " +
+        "Никакое новое подключение не откроется автоматически.\n\nОбновить?",
+        "Безопасное обновление",MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return;
+    }
     GitHubUpdater.Apply(manifest,staged);
     quitting=true;Close();
    }catch(Exception ex){
@@ -291,6 +301,29 @@ namespace HermesBridge {
   void UpdateGatewayMenu(){
    if(gatewayMenu==null)return;
    foreach(ToolStripMenuItem item in gatewayMenu.DropDownItems)item.Checked=String.Equals(item.Tag as string,gatewayMode,StringComparison.Ordinal);
+  }
+  async Task RecoverFromDeadGateAsync(){
+   if(running||enrolling||revoking||updating){
+    MessageBox.Show("Аварийный переход возможен только после остановки локального туннеля и завершения текущих операций.","МОСТ",MessageBoxButtons.OK,MessageBoxIcon.Warning);return;
+   }
+   if(tunnel!=null){try{if(!tunnel.HasExited){MessageBox.Show("Локальный SSH-процесс ещё работает. Сначала останови туннель.","МОСТ");return;}}catch{return;}}
+   bool hasState=File.Exists(Path.Combine(root,"approval-ticket"))||!String.IsNullOrWhiteSpace(slot.Text)||File.Exists(Key);
+   if(!hasState){SetGatewayMode("gr2");return;}
+   string warning="Аварийный переход на GR2 (Латвия).\n\n"+
+    "Старый DE2 не подтвердил отзыв разрешения. Это НЕ означает, что разрешение на DE2 закрыто.\n\n"+
+    "Старые ключи, билет и настройки будут сохранены в защищённой папке восстановления Windows-профиля. " +
+    "Будет создан НОВЫЙ SSH-ключ и потребуется отдельное подтверждение GR2.\n\n"+
+    "Действительно перейти на GR2?";
+   if(MessageBox.Show(warning,"Аварийный МОСТ",MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return;
+   try{
+    string archive=EmergencyRecovery.ArchiveAndRotate(root,"gr2");
+    revocationPending=false;running=false;enrolling=false;cancelEnrollment=false;
+    host.Text="";slot.Text="";port.Text="22471";known.Text=Known;activeMostCode="";
+    gatewayMode="gr2";enrollmentApi=GatewayEndpoints.Backup;
+    SaveSettings();UpdateGatewayMenu();
+    Status("Старое разрешение DE2 НЕ отозвано. Ключ и билет сохранены: "+archive+". Новый ключ GR2 создаётся при подключении.");
+    await Task.CompletedTask;
+   }catch(Exception ex){MessageBox.Show("Аварийный переход не выполнен: "+ex.Message,"МОСТ",MessageBoxButtons.OK,MessageBoxIcon.Error);}
   }
   void SetGatewayMode(string value){
    if(running||enrolling||revoking||revocationPending||File.Exists(Path.Combine(root,"approval-ticket"))||(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known))){
