@@ -25,7 +25,7 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), shortcut=new Button(); LinkLabel updates=new LinkLabel(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu;
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), emergencyLink=new LinkLabel(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu;
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
    Text="Hermes Connector 0.2.9"; Width=890;Height=566;MinimumSize=new Size(890,566);MaximumSize=new Size(890,566);StartPosition=FormStartPosition.CenterScreen;
@@ -43,6 +43,12 @@ namespace HermesBridge {
    setup.Text="Настройки и регистрация  ▾";setup.Left=22;setup.Top=384;setup.Width=395;setup.Height=40;setup.FlatStyle=FlatStyle.Flat;setup.ForeColor=muted;Controls.Add(setup);
    updates.Text="Проверить";updates.SetBounds(337,77,94,24);updates.TextAlign=ContentAlignment.MiddleRight;updates.LinkColor=blue;updates.ActiveLinkColor=blue;Controls.Add(updates);
    updates.Click+=async (s,e)=>await CheckAndInstallUpdateAsync(false);
+   emergencyLink.Text="Аварийно на GR2";
+   emergencyLink.SetBounds(295,150,140,19);
+   emergencyLink.TextAlign=ContentAlignment.MiddleRight;
+   emergencyLink.LinkColor=Color.FromArgb(176,56,56);
+   emergencyLink.Click+=async (sender,e)=>await RecoverFromDeadGateAsync();
+   Controls.Add(emergencyLink);
    expiryInfo.Left=30;expiryInfo.Top=462;expiryInfo.Width=400;expiryInfo.Height=24;expiryInfo.ForeColor=muted;Controls.Add(expiryInfo);
    advanced.Left=0;advanced.Top=505;advanced.Width=495;advanced.Height=280;advanced.Visible=false;Controls.Add(advanced);
    int y=5;AddLine("Устройство",device,ref y);AddLine("Сервер",host,ref y);AddLine("Порт сервера",port,ref y);AddLine("Порт сессии",slot,ref y);
@@ -322,7 +328,7 @@ namespace HermesBridge {
     gatewayMode="gr2";enrollmentApi=GatewayEndpoints.Backup;
     SaveSettings();UpdateGatewayMenu();
     Status("Старое разрешение DE2 НЕ отозвано. Ключ и билет сохранены: "+archive+". Новый ключ GR2 создаётся при подключении.");
-    await Task.CompletedTask;
+
    }catch(Exception ex){MessageBox.Show("Аварийный переход не выполнен: "+ex.Message,"МОСТ",MessageBoxButtons.OK,MessageBoxIcon.Error);}
   }
   void SetGatewayMode(string value){
