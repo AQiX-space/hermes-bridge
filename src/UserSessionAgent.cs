@@ -62,7 +62,7 @@ namespace HermesBridge {
     try{
      client.ReceiveTimeout=5000;client.SendTimeout=6000;
      using(var stream=client.GetStream()){
-      var bytes=new MemoryStream();int next;
+      var bytes=new MemoryStream();int next=-1;
       while(bytes.Length<=16000&&(next=stream.ReadByte())>=0&&next!=10)bytes.WriteByte((byte)next);
       if(bytes.Length>16000||next!=10){Write(stream,new Result{ok=false,error="Invalid or oversized request"});return;}
       Request req;
