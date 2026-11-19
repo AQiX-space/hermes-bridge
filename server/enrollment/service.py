@@ -376,7 +376,7 @@ def close_reverse_session(slot,timeout_seconds=5):
         proc=subprocess.run(['sudo','-n','/usr/local/sbin/hermes-close-slot',str(slot)],
                             capture_output=True,text=True,timeout=8,check=False)
         if proc.returncode!=0:
-            raise RuntimeError('scoped SSH revocation refused (helper exit %d)' % proc.returncode)
+            raise RuntimeError('cannot safely close reverse tunnel: scoped helper refused (exit %d)' % proc.returncode)
     else:
         result=terminate_scoped_session(slot,expected_uid=os.getuid())
         if not result['safe']:raise RuntimeError('cannot safely close reverse tunnel: '+result['reason'])
