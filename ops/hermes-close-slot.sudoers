@@ -1,0 +1,4 @@
+# Hermes broker may request only the fixed, input-validating revocation wrapper.
+# Wrapper accepts exactly one decimal port 23000..24999; root-owned code validates
+# procfs UID, service cgroup, session identity and pidfd before SIGTERM.
+hermes-bridge ALL=(root) NOPASSWD: /usr/local/sbin/hermes-close-slot *
