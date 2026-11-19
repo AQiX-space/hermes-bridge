@@ -116,6 +116,14 @@ jobs:
       - name: Enrollment regression tests
         shell: pwsh
         run: python server/test_enroll.py
+      - name: Windows Defender scan of unsigned GR preview (fail closed)
+        if: github.ref == 'refs/heads/feature/gr-gateway-failover'
+        shell: pwsh
+        run: |
+          $cmd=Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
+          if (!(Test-Path -LiteralPath $cmd)) { throw 'Windows Defender is unavailable' }
+          & $cmd -Scan -ScanType 3 -File (Resolve-Path HermesBridge.exe).Path
+          if ($LASTEXITCODE -ne 0) { throw "Windows Defender scan failed: $LASTEXITCODE" }
       - name: Store unsigned GR diagnostic build (private, not a release)
         if: github.ref == 'refs/heads/feature/gr-gateway-failover'
         uses: actions/upload-artifact@v4
