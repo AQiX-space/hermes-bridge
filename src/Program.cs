@@ -516,7 +516,7 @@ namespace HermesBridge {
      if(!isReady&&failure==null)return;
      try{if(IsHandleCreated&&!IsDisposed)BeginInvoke(new Action(()=>{
       if(!running||tunnel!=process)return;
-      if(isReady){forwardConfirmed=true;Status("Туннель открыт к агенту пользователя "+userAgent.UserName+". Авторизованное исполнение проверяется отдельно.");}
+      if(isReady){forwardConfirmed=true;Status("Туннель открыт к агенту пользователя "+(userAgent==null?"неизвестно":userAgent.UserName)+". Авторизованное исполнение проверяется отдельно.");}
       if(failure!=null){lastTunnelFailure=failure;Status(failure);}
      }));}catch(ObjectDisposedException){}
     };

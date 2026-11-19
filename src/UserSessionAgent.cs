@@ -48,7 +48,7 @@ namespace HermesBridge {
    byte[] expected;
    using(var hmac=new HMACSHA256(key))expected=hmac.ComputeHash(Encoding.UTF8.GetBytes(r.ts+"\n"+r.nonce+"\n"+r.script));
    if(!Equal(provided,expected))return false;
-   lock(gate){if(closed||!used.Add(r.nonce))return false;return true;}
+   lock(gate){if(closed||used.Count>=10000||!used.Add(r.nonce))return false;return true;}
   }
   void AcceptLoop(){
    while(!closed){
@@ -95,8 +95,12 @@ namespace HermesBridge {
    using(var proc=new Process()){
     proc.StartInfo=info;
     try{
-     lock(gate){if(closed)return new Result{ok=false,error="Agent stopped"};active=proc;}
-     proc.Start();
+     // Start while holding the same lock as Dispose. A disconnect cannot
+     // race between the closed-check and process creation.
+     lock(gate){
+      if(closed)return new Result{ok=false,error="Agent stopped"};
+      proc.Start();active=proc;
+     }
      Task<string> stdout=Task.Factory.StartNew(()=>Drain(proc.StandardOutput),TaskCreationOptions.LongRunning);
      Task<string> stderr=Task.Factory.StartNew(()=>Drain(proc.StandardError),TaskCreationOptions.LongRunning);
      bool exited=proc.WaitForExit(30000);
