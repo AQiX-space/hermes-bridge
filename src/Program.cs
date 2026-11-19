@@ -25,7 +25,7 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), shortcut=new Button(); LinkLabel updates=new LinkLabel(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue;
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu;
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
    Text="Hermes Connector 0.2.7"; Width=890;Height=566;MinimumSize=new Size(890,566);MaximumSize=new Size(890,566);StartPosition=FormStartPosition.CenterScreen;
@@ -82,6 +82,15 @@ namespace HermesBridge {
    connectedTrayIcon=MakeConnectedTrayIcon(Icon);
    ContextMenuStrip menu=new ContextMenuStrip();menu.Items.Add("Открыть",null,(s,e)=>ShowMain());
    trayToggle=new ToolStripMenuItem("Подключить");trayToggle.Click+=async (s,e)=>{if(running||enrolling||revocationPending)await DisconnectAsync();else await StartOrEnrollAsync();};menu.Items.Add(trayToggle);
+   gatewayMenu=new ToolStripMenuItem("Сервер МОСТ");
+   foreach(string mode in new[]{"auto","gr1","gr2"}){
+    string selected=mode;
+    string label=mode=="auto"?"Автоматически: GR1 → GR2":mode=="gr1"?"Только GR1 (DE2)":"Только GR2 (LV1)";
+    ToolStripMenuItem item=new ToolStripMenuItem(label){Tag=selected};
+    item.Click+=(sender,e)=>SetGatewayMode(selected);
+    gatewayMenu.DropDownItems.Add(item);
+   }
+   menu.Items.Add(gatewayMenu);
    menu.Items.Add("Выход",null,async (s,e)=>await ExitWithRevokeAsync());tray.ContextMenuStrip=menu;
    // Automatic updates only while remote support is disconnected. Signed manifest required.
    updateTimer.Interval=6*60*60*1000;
@@ -278,18 +287,38 @@ namespace HermesBridge {
     if(sshHealth!=null&&!sshHealth.Ready)Status("Компонент установлен. "+sshHealth.Explanation+". Для запуска sshd нужна отдельная настройка администратора.");
    }catch(Exception ex){Status("Не удалось установить "+title+": "+ex.Message);}
   }
+  Uri EnrollmentEndpoint {get{return GatewayEndpoints.Stored(enrollmentApi,host.Text.Trim());}}
+  void UpdateGatewayMenu(){
+   if(gatewayMenu==null)return;
+   foreach(ToolStripMenuItem item in gatewayMenu.DropDownItems)item.Checked=String.Equals(item.Tag as string,gatewayMode,StringComparison.Ordinal);
+  }
+  void SetGatewayMode(string value){
+   if(running||enrolling||revoking||revocationPending||File.Exists(Path.Combine(root,"approval-ticket"))){
+    Status("Сначала заверши разрешение и дождись подтверждённого отзыва на текущем Gate.");return;
+   }
+   if(value!="auto"&&value!="gr1"&&value!="gr2")return;
+   gatewayMode=value;
+   enrollmentApi=value=="gr2"?GatewayEndpoints.Backup:GatewayEndpoints.Primary;
+   SaveSettings();UpdateGatewayMenu();
+   Status("Шлюз МОСТ: "+(value=="auto"?"автоматически GR1 → GR2":value.ToUpperInvariant()));
+  }
   void LoadSettings(){
    device.Text=Environment.MachineName;host.Text="";port.Text="22471";slot.Text="";known.Text=Known;ttl.Value=60;
+   gatewayMode="auto";enrollmentApi=null;
    if(File.Exists(Config)){foreach(string line in File.ReadAllLines(Config,Encoding.UTF8)){
     int i=line.IndexOf('=');if(i<1)continue;string name=line.Substring(0,i),value=line.Substring(i+1);
     if(name=="device")device.Text=value;if(name=="host")host.Text=value;if(name=="port")port.Text=value;if(name=="slot")slot.Text=value;
+    if(name=="gateway_mode"&&(value=="auto"||value=="gr1"||value=="gr2"))gatewayMode=value;
+    if(name=="enrollment_api")enrollmentApi=value;
     int n;if(name=="ttl"&&int.TryParse(value,out n))ttl.Value=Math.Max(5,Math.Min(1440,n));
    }}
-   Status("Нажми «Подключить Гермеса» для запроса доступа.");
+   enrollmentApi=GatewayEndpoints.Stored(enrollmentApi,host.Text.Trim()).AbsoluteUri;
+   UpdateGatewayMenu();
+   Status("Нажми «Подключить Гермеса» для запроса доступа. Шлюз: "+gatewayMode.ToUpperInvariant()+".");
   }
   void SaveSettings(){
    if(!Valid(false))return;
-   string result="device="+device.Text.Trim()+"\nhost="+host.Text.Trim()+"\nport="+port.Text.Trim()+"\nslot="+slot.Text.Trim()+"\nttl="+ttl.Value+"\n";
+   string result="device="+device.Text.Trim()+"\nhost="+host.Text.Trim()+"\nport="+port.Text.Trim()+"\nslot="+slot.Text.Trim()+"\nttl="+ttl.Value+"\ngateway_mode="+gatewayMode+"\nenrollment_api="+EnrollmentEndpoint.AbsoluteUri+"\n";
    File.WriteAllText(Config,result,Encoding.UTF8);Status("Настройки сохранены.");
   }
   bool Valid(bool strict){
@@ -326,7 +355,6 @@ namespace HermesBridge {
    using(Process p=Process.Start(psi)){p.WaitForExit(15000);if(!p.HasExited){p.Kill();Error("Генерация ключа превысила 15 секунд");return false;}if(p.ExitCode!=0){Error("Не удалось создать ключ устройства");return false;}}
    return File.Exists(Key)&&File.Exists(Key+".pub");
   }
-  const string EnrollmentApi="https://de2.nod.aqixnet.com:18512/"; // DE2 trusted HTTPS enrollment.
   async Task StartOrEnrollAsync(){
    if(running||enrolling||revoking||revocationPending)return;
    await RefreshSshHealthAsync(false);
@@ -339,16 +367,23 @@ namespace HermesBridge {
    if(!EnsureKey())return;
    if(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known)&&File.Exists(Path.Combine(root,"approval-ticket"))){
     try{
-     EnrollmentResult a=await EnrollmentClient.PollAsync(new Uri(EnrollmentApi),TicketStore.Read(Path.Combine(root,"approval-ticket")));
+     EnrollmentResult a=await EnrollmentClient.PollAsync(EnrollmentEndpoint,TicketStore.Read(Path.Combine(root,"approval-ticket")));
      if(a.status=="approved"&&EnrollmentClient.Valid(a.config)&&a.config.slot.ToString()==slot.Text.Trim()&&a.config.host==host.Text.Trim()){
       await StartBridgeAsync();return;
      }
      Status("Прежнее разрешение на Gate больше не действует. Требуется новый запрос.");ClearLocalApproval();
     }catch(Exception ex){Status("Невозможно проверить ранее выданное разрешение: "+ex.Message);return;}
    }
-   enrolling=true;cancelEnrollment=false;int generation=++enrollmentGeneration;Status("Отправляем заявку на доступ…");
+   if(File.Exists(Path.Combine(root,"approval-ticket"))){
+    // Do not create a second request on another Gate while a previous ticket exists.
+    Status("Есть незавершённая заявка. Проверь или отзови билет на исходном Gate.");return;
+   }
+   enrolling=true;cancelEnrollment=false;int generation=++enrollmentGeneration;Status("Проверяем доступность GR1 и GR2…");
    try{
-    Uri endpoint=new Uri(EnrollmentApi);
+    Uri endpoint=await GatewayEndpoints.ChooseAsync(gatewayMode);
+    enrollmentApi=endpoint.AbsoluteUri;
+    SaveSettings();
+    Status("Отправляем заявку через "+endpoint.Host+"…");
     while(!cancelEnrollment&&generation==enrollmentGeneration){
      EnrollmentTicket ticket=null;
      while(ticket==null&&!cancelEnrollment&&generation==enrollmentGeneration){
@@ -467,7 +502,7 @@ namespace HermesBridge {
     try{
      string f=Path.Combine(root,"approval-ticket");
      if(File.Exists(f)){
-      EnrollmentResult a=await EnrollmentClient.PollAsync(new Uri(EnrollmentApi),TicketStore.Read(f));
+      EnrollmentResult a=await EnrollmentClient.PollAsync(EnrollmentEndpoint,TicketStore.Read(f));
       if(running&&a.status=="revoking"){
        // Keep the ticket for retry until Gate verifies the reverse session is gone.
        await DisconnectAsync();
@@ -519,7 +554,7 @@ namespace HermesBridge {
    }
    try{
     string ticket=TicketStore.Read(ticketFile).Trim();
-    if(!await EnrollmentClient.RevokeAsync(new Uri(EnrollmentApi),ticket))throw new InvalidOperationException("Gate не подтвердил отзыв");
+    if(!await EnrollmentClient.RevokeAsync(EnrollmentEndpoint,ticket))throw new InvalidOperationException("Gate не подтвердил отзыв");
     ClearLocalApproval();revocationPending=false;Status("Отключено. Gate отозвал разрешение; новое подключение потребует подтверждения.");
    }catch(Exception ex){Status("Туннель закрыт, но отзыв на Gate не подтверждён: "+ex.Message+". Повтори «Отключить» после восстановления связи.");}
    finally{revoking=false;Status(revocationPending?"Отключено локально. Отзыв разрешения на Gate не завершён — нажми «Отключить» ещё раз.":"Доступ закрыт.");}

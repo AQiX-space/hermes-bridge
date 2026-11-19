@@ -119,4 +119,59 @@ namespace HermesBridge {
    File.WriteAllText(Path.Combine(settingsDir,"approved-bridge.cfg"),cfg,Encoding.UTF8);
   }
  }
+
+ // Each enrollment belongs to exactly one broker; never switch an active ticket
+ // to another domain just because a transport is unavailable.
+ public static class GatewayEndpoints {
+  public const string Primary="https://gr1.touch01.top:18512/";
+  public const string Backup="https://gr2.touch01.top:18512/";
+  public const string Legacy="https://de2.nod.aqixnet.com:18512/";
+  public static Uri Stored(string stored,string host){
+   if(stored==Primary||stored==Backup||stored==Legacy)return new Uri(stored);
+   if(String.Equals(host,"gr2.touch01.top",StringComparison.OrdinalIgnoreCase))return new Uri(Backup);
+   if(String.Equals(host,"gr1.touch01.top",StringComparison.OrdinalIgnoreCase))return new Uri(Primary);
+   if(String.Equals(host,"de2.nod.aqixnet.com",StringComparison.OrdinalIgnoreCase))return new Uri(Legacy);
+   return new Uri(Primary);
+  }
+  public static async Task<Uri> ChooseAsync(string mode,Func<Uri,Task<bool>> probe=null){
+   if(mode=="gr1")return new Uri(Primary);
+   if(mode=="gr2")return new Uri(Backup);
+   if(mode!="auto")throw new InvalidDataException("Invalid gateway mode");
+   if(probe==null)probe=ProbeAsync;
+   foreach(string url in new[]{Primary,Backup}){
+    Uri target=new Uri(url);
+    try{if(await probe(target))return target;}catch(WebException){}
+   }
+   throw new WebException("Both Hermes gateways are unavailable (GR1, GR2)");
+  }
+  // Check the *upstream broker*, not a static nginx /healthz, and the actual
+  // SSH Gate banner. A successful ping or HTTPS proxy alone is insufficient.
+  public static async Task<bool> ProbeAsync(Uri gateway){
+   return await Task.Run(()=>{
+    try{
+     ServicePointManager.SecurityProtocol|=SecurityProtocolType.Tls12;
+     var req=(HttpWebRequest)WebRequest.Create(new Uri(gateway,"/v1/enroll/hermes-unregistered-probe"));
+     req.Method="GET";req.Timeout=3500;req.ReadWriteTimeout=3500;
+     try{using(var res=(HttpWebResponse)req.GetResponse()){return false;}}
+     catch(WebException ex){
+      using(var response=ex.Response as HttpWebResponse){
+       if(response==null||response.StatusCode!=HttpStatusCode.NotFound)return false;
+      }
+     }
+     using(var tcp=new TcpClient()){
+      var pending=tcp.BeginConnect(gateway.Host,22471,null,null);
+      try{if(!pending.AsyncWaitHandle.WaitOne(2500))return false;
+       tcp.EndConnect(pending);
+      }finally{pending.AsyncWaitHandle.Close();}
+      var stream=tcp.GetStream();stream.ReadTimeout=2500;
+      byte[] banner=new byte[32];int n=stream.Read(banner,0,banner.Length);
+      return n>=7&&Encoding.ASCII.GetString(banner,0,n).StartsWith("SSH-2.0",StringComparison.Ordinal);
+     }
+    }catch(Exception ex){
+     if(ex is WebException||ex is SocketException||ex is IOException||ex is InvalidOperationException)return false;
+     return false;
+    }
+   });
+  }
+ }
 }

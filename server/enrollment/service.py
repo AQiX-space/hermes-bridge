@@ -368,8 +368,18 @@ def close_reverse_session(slot,timeout_seconds=5):
     from session_guard import tcp_listeners,terminate_scoped_session
     if not isinstance(slot,int) or not 23000<=slot<=24999:raise ValueError('invalid slot')
     if slot not in tcp_listeners():return True
-    result=terminate_scoped_session(slot,expected_uid=os.getuid())
-    if not result['safe']:raise RuntimeError('cannot safely close reverse tunnel: '+result['reason'])
+    # The OpenSSH child is non-dumpable: the unprivileged broker cannot inspect
+    # /proc/<pid>/fd even when both processes share a UID. Delegate only this
+    # validated port operation to a root-owned, fixed-path helper via sudoers.
+    if os.geteuid()!=0:
+        import subprocess
+        proc=subprocess.run(['sudo','-n','/usr/local/sbin/hermes-close-slot',str(slot)],
+                            capture_output=True,text=True,timeout=8,check=False)
+        if proc.returncode!=0:
+            raise RuntimeError('scoped SSH revocation refused (helper exit %d)' % proc.returncode)
+    else:
+        result=terminate_scoped_session(slot,expected_uid=os.getuid())
+        if not result['safe']:raise RuntimeError('cannot safely close reverse tunnel: '+result['reason'])
     until=time.monotonic()+timeout_seconds
     while time.monotonic()<until:
         if slot not in tcp_listeners():return True

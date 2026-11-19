@@ -1,0 +1,8 @@
+#!/bin/sh
+# Root-owned fixed-entry sudo helper; refuses arbitrary arguments/commands.
+set -eu
+[ "$#" -eq 1 ] || exit 64
+case "$1" in ''|*[!0-9]*) exit 64;; esac
+[ "$1" -ge 23000 ] && [ "$1" -le 24999 ] || exit 64
+cd /opt/hermes-enrollment
+exec /usr/bin/python3 -I -c 'import sys;sys.path.insert(0,"/opt/hermes-enrollment");import close_scoped_slot;sys.exit(close_scoped_slot.main(sys.argv[1:]))' "$1"

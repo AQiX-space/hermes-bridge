@@ -4,6 +4,16 @@ using HermesBridge;
 class EnrollmentClientTests {
  static void Check(bool b,string s){if(!b)throw new Exception("FAILED "+s);Console.WriteLine("PASS "+s);}
  static int Main(){
+  Check(GatewayEndpoints.Stored(null,"gr2.touch01.top").AbsoluteUri==GatewayEndpoints.Backup,"existing GR2 ticket remains on GR2");
+  Check(GatewayEndpoints.Stored(null,"de2.nod.aqixnet.com").AbsoluteUri==GatewayEndpoints.Legacy,"legacy approved ticket remains on legacy DE2 broker");
+  Check(GatewayEndpoints.Stored("https://untrusted.invalid/","gr1.touch01.top").AbsoluteUri==GatewayEndpoints.Primary,"untrusted persisted URL rejected");
+  Check(GatewayEndpoints.ChooseAsync("gr2",u=>System.Threading.Tasks.Task.FromResult(false)).GetAwaiter().GetResult().AbsoluteUri==GatewayEndpoints.Backup,"manual GR2 selection");
+  Check(GatewayEndpoints.ChooseAsync("auto",u=>System.Threading.Tasks.Task.FromResult(u.AbsoluteUri==GatewayEndpoints.Backup)).GetAwaiter().GetResult().AbsoluteUri==GatewayEndpoints.Backup,"automatic fallback to GR2");
+  Check(GatewayEndpoints.ChooseAsync("auto",u=>System.Threading.Tasks.Task.FromResult(true)).GetAwaiter().GetResult().AbsoluteUri==GatewayEndpoints.Primary,"prefer GR1 when healthy");
+  bool bothDown=false;
+  try{GatewayEndpoints.ChooseAsync("auto",u=>System.Threading.Tasks.Task.FromResult(false)).GetAwaiter().GetResult();}
+  catch(System.Net.WebException){bothDown=true;}
+  Check(bothDown,"fail closed when both gateways are unavailable");
   string b64=Convert.ToBase64String(new byte[]{0,0,0,11,115,115,104,45,101,100,50,53,53,49,57,0,0,0,32,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32});
   Check(EnrollmentClient.ShouldRenewPending("expired"),"expired pending ticket is automatically renewed");
   foreach(string terminal in new[]{"pending","approved","denied","revoked","not_found"})
