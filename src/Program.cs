@@ -312,6 +312,8 @@ namespace HermesBridge {
     if(name=="enrollment_api")enrollmentApi=value;
     int n;if(name=="ttl"&&int.TryParse(value,out n))ttl.Value=Math.Max(5,Math.Min(1440,n));
    }}
+   // Pre-GR versions wrote no broker URL. A pending old ticket belongs to DE2.
+   if(String.IsNullOrWhiteSpace(enrollmentApi)&&File.Exists(Path.Combine(root,"approval-ticket"))&&String.IsNullOrWhiteSpace(host.Text))enrollmentApi=GatewayEndpoints.Legacy;
    enrollmentApi=GatewayEndpoints.Stored(enrollmentApi,host.Text.Trim()).AbsoluteUri;
    UpdateGatewayMenu();
    Status("Нажми «Подключить Гермеса» для запроса доступа. Шлюз: "+gatewayMode.ToUpperInvariant()+".");
@@ -371,24 +373,23 @@ namespace HermesBridge {
      if(a.status=="approved"&&EnrollmentClient.Valid(a.config)&&a.config.slot.ToString()==slot.Text.Trim()&&a.config.host==host.Text.Trim()){
       await StartBridgeAsync();return;
      }
-     Status("Прежнее разрешение на Gate больше не действует. Требуется новый запрос.");ClearLocalApproval();
+     if(a.status=="revoked"||a.status=="expired"||a.status=="denied"){
+      Status("Gate подтвердил завершение предыдущего разрешения.");ClearLocalApproval();
+     }else{Status("Прежнее разрешение ещё не закрыто на Gate: "+a.status);return;}
     }catch(Exception ex){Status("Невозможно проверить ранее выданное разрешение: "+ex.Message);return;}
    }
    if(!File.Exists(Path.Combine(root,"approval-ticket"))&&!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known)){
     Status("Старое разрешение не имеет билета отзыва. Нужен операторский отзыв на исходном Gate.");return;
    }
-   if(File.Exists(Path.Combine(root,"approval-ticket"))){
-    // Do not create a second request on another Gate while a previous ticket exists.
-    Status("Есть незавершённая заявка. Проверь или отзови билет на исходном Gate.");return;
-   }
-   enrolling=true;cancelEnrollment=false;int generation=++enrollmentGeneration;Status("Проверяем доступность GR1 и GR2…");
+   bool resumePending=File.Exists(Path.Combine(root,"approval-ticket"));
+   enrolling=true;cancelEnrollment=false;int generation=++enrollmentGeneration;Status(resumePending?"Восстанавливаем прежнюю заявку МОСТ…":"Проверяем доступность GR1 и GR2…");
    try{
-    Uri endpoint=await GatewayEndpoints.ChooseAsync(gatewayMode);
-    enrollmentApi=endpoint.AbsoluteUri;
-    SaveSettings();
-    Status("Отправляем заявку через "+endpoint.Host+"…");
+    Uri endpoint=resumePending?EnrollmentEndpoint:await GatewayEndpoints.ChooseAsync(gatewayMode);
+    if(!resumePending){enrollmentApi=endpoint.AbsoluteUri;SaveSettings();}
+    Status((resumePending?"Проверяем прежнюю заявку через ":"Отправляем заявку через ")+endpoint.Host+"…");
     while(!cancelEnrollment&&generation==enrollmentGeneration){
-     EnrollmentTicket ticket=null;
+     EnrollmentTicket ticket=resumePending?new EnrollmentTicket{ticket=TicketStore.Read(Path.Combine(root,"approval-ticket")),code=""}:null;
+     resumePending=false;
      while(ticket==null&&!cancelEnrollment&&generation==enrollmentGeneration){
      bool retry=false;
      try{ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim());}
@@ -404,7 +405,9 @@ namespace HermesBridge {
     }
     if(generation!=enrollmentGeneration||cancelEnrollment||ticket==null)return;
     TicketStore.Write(Path.Combine(root,"approval-ticket"),ticket.ticket);
-    activeMostCode=ticket.code;Status("Код МОСТ: "+ticket.code+" · Назови его при подтверждении.");
+    activeMostCode=ticket.code;
+    if(String.IsNullOrWhiteSpace(ticket.code))Status("Прежняя заявка ещё ожидает решения на "+endpoint.Host+". Используй ранее выданный код.");
+    else Status("Код МОСТ: "+ticket.code+" · Назови его при подтверждении.");
     // Reuse the same request and code until approval/rejection/expiry. Transient HTTP
     // errors must NEVER create another registration or discard this ticket.
     while(!cancelEnrollment&&generation==enrollmentGeneration){
