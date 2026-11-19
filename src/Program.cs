@@ -19,7 +19,7 @@ namespace HermesBridge {
   TextBox host=new TextBox(),port=new TextBox(),slot=new TextBox(),known=new TextBox(),device=new TextBox();
   NumericUpDown ttl=new NumericUpDown(); CheckBox autoDisconnect=new CheckBox(); Label mostCode=new Label(); Label state=new Label(); Button start=new Button(),stop=new Button(),reload=new Button(),save=new Button(),import=new Button();
   NotifyIcon tray=new NotifyIcon(); ToolStripMenuItem trayToggle; Icon connectedTrayIcon; System.Windows.Forms.Timer heartbeat=new System.Windows.Forms.Timer();
-  Process tunnel; DateTime deadline; bool running=false, quitting=false, updating=false, forwardConfirmed=false, enrolling=false, cancelEnrollment=false; int enrollmentGeneration=0; string lastTunnelFailure="";
+  Process tunnel; UserSessionAgent userAgent; DateTime deadline; bool running=false, quitting=false, updating=false, forwardConfirmed=false, enrolling=false, cancelEnrollment=false; int enrollmentGeneration=0; string lastTunnelFailure="";
   string Config {get{return Path.Combine(root,"client.ini");}}
   string Ssh {get{return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"OpenSSH","ssh.exe");}}
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
@@ -28,11 +28,11 @@ namespace HermesBridge {
   TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), emergencyLink=new LinkLabel(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu;
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(){
-   Text="Hermes Connector 0.2.9"; Width=890;Height=566;MinimumSize=new Size(890,566);MaximumSize=new Size(890,566);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.3.0-dev"; Width=890;Height=566;MinimumSize=new Size(890,566);MaximumSize=new Size(890,566);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",19,FontStyle.Bold),Left=30,Top=24,Width=388,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="Версия 0.2.9 · резерв GR2",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
+   subtitle=new Label(){Text="0.3.0-dev · сеанс пользователя",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=28,Top=167,Width=403,Height=130,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=12;state.Width=250;state.Height=44;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=54;connectionInfo.Width=368;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
@@ -70,7 +70,7 @@ namespace HermesBridge {
    sshInfo.SetBounds(31,105,287,57);sshInfo.ForeColor=muted;Controls.Add(sshInfo);
    installSsh.Text="Установить сервер";installSsh.SetBounds(303,123,128,25);installSsh.TextAlign=ContentAlignment.MiddleRight;installSsh.LinkColor=blue;Controls.Add(installSsh);
    sshCheck.Text="Проверить";sshCheck.SetBounds(303,123,128,25);sshCheck.TextAlign=ContentAlignment.MiddleRight;sshCheck.LinkColor=blue;Controls.Add(sshCheck);
-   sshCheck.Click+=async (s,e)=>{sshVersion=null;await RefreshSshHealthAsync(true);};
+   sshCheck.Click+=(s,e)=>Status("Текущий пользователь: "+WindowsIdentity.GetCurrent().Name+". Подключение не требует Windows SSH Server.");
    installSsh.Click+=async (s,e)=>await InstallOpenSshAsync();
    shortcut.Parent= this;shortcut.SetBounds(28,376,190,37);shortcut.Visible=true;
    closeApp.Text="Закрыть Connector";closeApp.SetBounds(230,376,201,37);closeApp.Click+=async (s,e)=>await ExitWithRevokeAsync();Controls.Add(closeApp);
@@ -105,7 +105,7 @@ namespace HermesBridge {
    updateTimer.Interval=6*60*60*1000;
    updateTimer.Tick+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
    updateTimer.Start();
-   Shown+=async (s,e)=>{await RefreshSshHealthAsync(false);await CheckAndInstallUpdateAsync(true);};
+   Shown+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
    heartbeat.Interval=2000;heartbeat.Tick+=async (s,e)=>{if(tickBusy)return;tickBusy=true;try{await TickAsync();}finally{tickBusy=false;}};heartbeat.Start();
    LoadSettings();EnsureDesktopShortcut();FormClosing+=(s,e)=>{if(!quitting){e.Cancel=true;Hide();}else{StopBridge();tray.Visible=false;tray.Dispose();if(connectedTrayIcon!=null)connectedTrayIcon.Dispose();}};
   }
@@ -210,12 +210,12 @@ namespace HermesBridge {
    if(state==null)return;
    bool processAlive=false;
    try{processAlive=tunnel!=null&&!tunnel.HasExited;}catch{}
-   state.Text=running&&processAlive&&forwardConfirmed&&sshHealth!=null&&sshHealth.Ready?"Туннель открыт":enrolling?"Ожидаем разрешение":running?"Подключение…":"Доступ отключён";
-   state.ForeColor=running&&processAlive&&forwardConfirmed&&sshHealth!=null&&sshHealth.Ready?Color.FromArgb(22,101,52):running?blue:ink;
+   state.Text=running&&processAlive&&forwardConfirmed&&userAgent!=null?"Туннель открыт":enrolling?"Ожидаем разрешение":running?"Подключение…":"Доступ отключён";
+   state.ForeColor=running&&processAlive&&forwardConfirmed&&userAgent!=null?Color.FromArgb(22,101,52):running?blue:ink;
    connectionInfo.Text=value;
    deviceInfo.Text="ПК: "+Environment.MachineName+" · IPv4: "+(EnrollmentClient.LocalIPv4()??"не определён");mostCode.Text=activeMostCode;
    expiryInfo.Text=running&&autoDisconnect.Checked?"Отключение: "+deadline.ToLocalTime().ToString("HH:mm"):"Автоотключение выключено";
-   bool connected=running&&processAlive&&forwardConfirmed&&sshHealth!=null&&sshHealth.Ready;
+   bool connected=running&&processAlive&&forwardConfirmed&&userAgent!=null;
    start.Visible=!running&&!enrolling&&!revoking&&!revocationPending;stop.Visible=running||enrolling||revoking||revocationPending;start.Enabled=!running&&!enrolling&&!revoking&&!revocationPending;stop.Enabled=(running||enrolling||revocationPending)&&!revoking;
    if(trayToggle!=null){trayToggle.Text=running||enrolling||revocationPending?"Отключить":"Подключить";trayToggle.Enabled=true;}
    if(tray.Visible){tray.Icon=connected&&connectedTrayIcon!=null?connectedTrayIcon:Icon;tray.Text=connected?"Hermes Connector — туннель открыт":enrolling?"Hermes Connector — ожидание":"Hermes Connector — отключён";}
@@ -241,15 +241,10 @@ namespace HermesBridge {
      }
     }catch{}
    }
-   sshInfo.Text="SSH-клиент: "+(installed?sshVersion:"не установлен")+"\nSSH-сервер: "+(sshHealth==null?"проверяется":ServerLabel(sshHealth.State));
-   if(sshHealthBusy){installSsh.Visible=false;sshCheck.Visible=true;sshCheck.Text="Проверяем…";sshCheck.Enabled=false;return;}
-   sshCheck.Enabled=true;sshCheck.Text="Проверить";
-   bool clientMissing=!installed;
-   bool serverMissing=installed&&sshHealth!=null&&sshHealth.State==SshServerState.ServerMissing;
-   bool canInstall=(clientMissing||serverMissing)&&SshServerHealth.SupportsWindowsCapability();
-   installSsh.Visible=canInstall;
-   installSsh.Text=clientMissing?"Установить клиент":"Установить сервер";
-   sshCheck.Visible=!canInstall;
+   sshInfo.Text="Режим: пользователь "+WindowsIdentity.GetCurrent().Name+"\nSSH-транспорт: "+(installed?sshVersion:"клиент не установлен");
+   installSsh.Visible=!installed&&SshServerHealth.SupportsWindowsCapability();
+   installSsh.Text="Установить SSH-клиент";
+   sshCheck.Visible=installed;sshCheck.Text="Пользователь";sshCheck.Enabled=true;
   }
   static string ServerLabel(SshServerState state){
    switch(state){
@@ -398,13 +393,7 @@ namespace HermesBridge {
   }
   async Task StartOrEnrollAsync(){
    if(running||enrolling||revoking||revocationPending)return;
-   await RefreshSshHealthAsync(false);
-   if(sshHealth==null||!sshHealth.Ready){
-    string reason=sshHealth==null?"Проверка SSH не удалась":sshHealth.Explanation;
-    Status("МОСТ не запущен: "+reason);
-    Error(reason+". Перед регистрацией настрой OpenSSH Server и нажми «Проверить». Порт 22 не открывай наружу без отдельного решения администратора.");
-    return;
-   }
+   if(!File.Exists(Ssh)){Status("Нужен штатный OpenSSH Client для защищённого туннеля.");return;}
    if(!EnsureKey())return;
    if(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known)&&File.Exists(Path.Combine(root,"approval-ticket"))){
     try{
@@ -490,11 +479,9 @@ namespace HermesBridge {
   }
   async Task StartBridgeAsync(){
    if(running)return;
-   await RefreshSshHealthAsync(false);
-   if(sshHealth==null||!sshHealth.Ready){
-    Status("Разрешение получено, но SSH-сервер не готов: "+(sshHealth==null?"ошибка проверки":sshHealth.Explanation)+". Билет сохранён для повтора.");
-    return;
-   }
+   // Do not require or contact Windows OpenSSH Server. Execution stays
+   // in the user logon token of THIS process.
+   if(!File.Exists(Ssh)){Status("Не установлен OpenSSH Client для защищённого канала.");return;}
    if(String.IsNullOrWhiteSpace(host.Text)||String.IsNullOrWhiteSpace(slot.Text)||!File.Exists(Known)){
     if(EnsureKey()){
      MessageBox.Show("Этот компьютер ещё не зарегистрирован в Hermes Gate.\n\nКлюч устройства создан локально. Нажми «Скопировать ключ» в разделе регистрации и передай только публичный ключ оператору. До подтверждения сервером удалённый доступ не открывается.","Регистрация Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Information);
@@ -507,12 +494,16 @@ namespace HermesBridge {
    if(!File.Exists(Known)){Error("Нет проверенного known_hosts. Его выдаёт оператор после регистрации устройства.");return;}
    if(!EnsureKey())return;
    SaveSettings();
+   try{
+    if(userAgent==null)userAgent=new UserSessionAgent(TicketStore.Read(Path.Combine(root,"approval-ticket")));
+   }catch(Exception ex){Status("Не удалось запустить агент текущего пользователя: "+ex.Message);return;}
    deadline=autoDisconnect.Checked?DateTime.UtcNow.AddMinutes((double)ttl.Value):DateTime.MaxValue;running=true;retryAt=DateTime.UtcNow.AddSeconds(10);Launch();
   }
   void Launch(){
    if(!running||DateTime.UtcNow>=deadline)return;
    int serverPort=int.Parse(port.Text),remote=int.Parse(slot.Text);
-   string args="-v -N -T -p "+serverPort+" -R 127.0.0.1:"+remote+":127.0.0.1:22 -i \""+Key+"\" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\""+Known+"\" -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 hermes-bridge@"+host.Text.Trim();
+   if(userAgent==null){StopBridge();Status("Агент текущего пользователя остановлен, канал закрыт.");return;}
+   string args="-v -N -T -p "+serverPort+" -R 127.0.0.1:"+remote+":127.0.0.1:"+userAgent.Port+" -i \""+Key+"\" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\""+Known+"\" -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 hermes-bridge@"+host.Text.Trim();
    try{
     if(tunnel!=null){try{tunnel.Dispose();}catch{}tunnel=null;}
     forwardConfirmed=false;lastTunnelFailure="";
@@ -525,7 +516,7 @@ namespace HermesBridge {
      if(!isReady&&failure==null)return;
      try{if(IsHandleCreated&&!IsDisposed)BeginInvoke(new Action(()=>{
       if(!running||tunnel!=process)return;
-      if(isReady){forwardConfirmed=true;Status("Шлюз подтвердил обратный порт; локальный SSH проверен. Удалённый вход ещё не проверен.");}
+      if(isReady){forwardConfirmed=true;Status("Туннель открыт к агенту пользователя "+userAgent.UserName+". Авторизованное исполнение проверяется отдельно.");}
       if(failure!=null){lastTunnelFailure=failure;Status(failure);}
      }));}catch(ObjectDisposedException){}
     };
@@ -535,13 +526,7 @@ namespace HermesBridge {
   DateTime retryAt=DateTime.MinValue;
   async Task TickAsync(){
    if(!running)return;
-   if(DateTime.UtcNow>=nextSshHealth){
-    nextSshHealth=DateTime.UtcNow.AddSeconds(30);
-    bool wasReady=sshHealth!=null&&sshHealth.Ready;
-    await RefreshSshHealthAsync(false);
-    bool nowReady=sshHealth!=null&&sshHealth.Ready;
-    if(wasReady!=nowReady)Status(nowReady?"Локальный SSH восстановлен; туннель открыт без проверки удалённого входа.":"Локальный SSH перестал отвечать. Доступ оператора невозможен.");
-   }
+   if(userAgent==null){StopBridge();Status("Агент пользователя не запущен — доступ закрыт.");return;}
    if(!leaseCheckBusy&&DateTime.UtcNow>=nextLeaseCheck){
     leaseCheckBusy=true;nextLeaseCheck=DateTime.UtcNow.AddSeconds(15);
     try{
@@ -611,7 +596,8 @@ namespace HermesBridge {
   void StopBridge(){
    cancelEnrollment=true;enrollmentGeneration++;enrolling=false;running=false;activeMostCode="";forwardConfirmed=false;lastTunnelFailure="";
    if(tunnel!=null){try{if(!tunnel.HasExited)tunnel.Kill();tunnel.Dispose();}catch{}tunnel=null;}
-   Status("Остановлено. Локальный процесс туннеля завершён.");
+   if(userAgent!=null){try{userAgent.Dispose();}catch{}userAgent=null;}
+   Status("Остановлено. Туннель и агент текущего пользователя завершены.");
   }
  }
 }
