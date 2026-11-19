@@ -137,7 +137,7 @@ jobs:
             throw "Windows Defender did not actually verify the EXE (exit=$scanExit). Use a trusted Windows host and verify the exact SHA256."
           }
       - name: Store unsigned GR diagnostic build (private, not a release)
-        if: github.ref == 'refs/heads/feature/gr-gateway-failover'
+        if: github.ref == 'refs/heads/feature/gr-gateway-failover' || github.ref == 'refs/heads/fix/recovery-from-dead-gate'
         uses: actions/upload-artifact@v4
         with:
           name: HermesConnector-GR1-GR2-unsigned-preview
