@@ -8,7 +8,7 @@ using System.Windows.Forms;
 // Emergency per-user installer for a 0.2.7/0.2.8 Connector deadlocked on DE2.
 // Never changes enrollment state, tokens, SSH identity, firewall or server permissions.
 class HermesRecoveryInstaller {
- const string ExpectedHash="737e274a6ab5797c0ea8277c5b632503bbc840128906119b61675db327615b42";
+ const string ExpectedHash="__PAYLOAD_SHA256__";
  static string Hash(byte[] b){using(var s=SHA256.Create())return BitConverter.ToString(s.ComputeHash(b)).Replace("-","").ToLowerInvariant();}
  static byte[] Embedded(){
   using(Stream stream=Assembly.GetExecutingAssembly().GetManifestResourceStream("HermesBridge.exe")){

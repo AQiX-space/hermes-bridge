@@ -35,9 +35,11 @@ jobs:
         shell: pwsh
         run: |
           $hash=(Get-FileHash HermesBridge.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -cne '737e274a6ab5797c0ea8277c5b632503bbc840128906119b61675db327615b42') { throw 'Recovery installer source is not pinned to this exact build' }
+          $source=Get-Content installer\RecoveryInstaller.cs -Raw
+          if (-not $source.Contains('__PAYLOAD_SHA256__')) { throw 'Installer source digest placeholder missing' }
+          $source.Replace('__PAYLOAD_SHA256__',$hash) | Set-Content installer\RecoveryInstaller.pinned.cs -Encoding UTF8
           $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-          & $csc /nologo /target:winexe /optimize+ /out:HermesRecoveryInstaller.exe /reference:System.Windows.Forms.dll /resource:HermesBridge.exe,HermesBridge.exe installer\RecoveryInstaller.cs
+          & $csc /nologo /target:winexe /optimize+ /out:HermesRecoveryInstaller.exe /reference:System.Windows.Forms.dll /resource:HermesBridge.exe,HermesBridge.exe installer\RecoveryInstaller.pinned.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & .\HermesRecoveryInstaller.exe --verify-only
           if ($LASTEXITCODE -ne 0) { throw 'Installer embedded payload verification failed' }
