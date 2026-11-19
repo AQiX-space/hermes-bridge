@@ -30,6 +30,24 @@ jobs:
           $sig=Get-AuthenticodeSignature HermesBridge.exe
           Write-Output "Authenticode status: $($sig.Status)"
           Write-Output 'Developer build only. Release publication disabled until code signing and Defender review are complete.'
+      - name: Build and verify offline recovery installer for 0.2.9
+        if: github.ref == 'refs/heads/fix/recovery-from-dead-gate'
+        shell: pwsh
+        run: |
+          $hash=(Get-FileHash HermesBridge.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -cne '737e274a6ab5797c0ea8277c5b632503bbc840128906119b61675db327615b42') { throw 'Recovery installer source is not pinned to this exact build' }
+          $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:winexe /optimize+ /out:HermesRecoveryInstaller.exe /reference:System.Windows.Forms.dll /resource:HermesBridge.exe,HermesBridge.exe installer\RecoveryInstaller.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\HermesRecoveryInstaller.exe --verify-only
+          if ($LASTEXITCODE -ne 0) { throw 'Installer embedded payload verification failed' }
+      - name: Store private offline recovery installer
+        if: github.ref == 'refs/heads/fix/recovery-from-dead-gate'
+        uses: actions/upload-artifact@v4
+        with:
+          name: HermesRecoveryInstaller-0.2.9
+          path: HermesRecoveryInstaller.exe
+          retention-days: 7
       - name: Cryptographic update regression tests
         shell: pwsh
         run: |
