@@ -116,3 +116,10 @@ jobs:
       - name: Enrollment regression tests
         shell: pwsh
         run: python server/test_enroll.py
+      - name: Store unsigned GR diagnostic build (private, not a release)
+        if: github.ref == 'refs/heads/feature/gr-gateway-failover'
+        uses: actions/upload-artifact@v4
+        with:
+          name: HermesConnector-GR1-GR2-unsigned-preview
+          path: HermesBridge.exe
+          retention-days: 7
