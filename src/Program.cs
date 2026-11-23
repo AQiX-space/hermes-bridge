@@ -29,7 +29,7 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), shortcut=new Button(); LinkLabel updates=new LinkLabel(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), sshServerInstall=new LinkLabel(), emergencyLink=new LinkLabel(); Button logToggle=new Button(); Label logTitle=new Label(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu; ToolStripMenuItem modeMenu; ToolStripMenuItem codeMenu; string announcedCode="";
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), sshServerInstall=new LinkLabel(), emergencyLink=new LinkLabel(); Button logToggle=new Button(); Label logTitle=new Label(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu; ToolStripMenuItem modeMenu; ToolStripMenuItem disableStartupMenu; ToolStripMenuItem codeMenu; string announcedCode="";
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(bool startedAsResident=false){
    launchResident=startedAsResident;
@@ -111,6 +111,9 @@ namespace HermesBridge {
    modeMenu.DropDownItems.Add("Временная поддержка",null,(sender,e)=>SwitchMode(ConnectorMode.Support));
    modeMenu.DropDownItems.Add("Постоянный агент",null,(sender,e)=>SwitchMode(ConnectorMode.Resident));
    menu.Items.Add(modeMenu);
+   disableStartupMenu=new ToolStripMenuItem("Отключить автозапуск");
+   disableStartupMenu.Click+=(sender,e)=>DisableStartupLocally();
+   menu.Items.Add(disableStartupMenu);
    codeMenu=new ToolStripMenuItem("Код МОСТ");codeMenu.Visible=false;
    codeMenu.Click+=(sender,e)=>{if(!String.IsNullOrEmpty(activeMostCode))Clipboard.SetText(activeMostCode);};
    menu.Items.Add(codeMenu);
@@ -265,7 +268,19 @@ namespace HermesBridge {
    deadline=preferences.Mode==ConnectorMode.Support&&autoDisconnect.Checked?
     sessionStarted.AddMinutes((double)ttl.Value):DateTime.MaxValue;
   }
+  void DisableStartupLocally(){
+   if(preferences.Mode!=ConnectorMode.Resident)return;
+   if(MessageBox.Show("Выключить автоматический запуск Гермес Коннектора при следующем входе в Windows?\n\n"+
+      "Текущий SSH-туннель не прерывается. Эта операция НЕ является отзывом разрешения на сервере. " +
+      "Для полного прекращения доступа нужно отдельно завершить сеанс и дождаться подтверждения от Gate.",
+      "Отключение постоянного режима",MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return;
+   try{WindowsStartup.Disable();}
+   catch(Exception ex){Status("Не удалось выключить автозапуск: "+ex.Message);return;}
+   UpdateModeMenu();
+   Status("Автозапуск выключен. Текущее серверное разрешение не изменено.");
+  }
   void UpdateModeMenu(){
+   if(disableStartupMenu!=null)disableStartupMenu.Visible=preferences.Mode==ConnectorMode.Resident&&WindowsStartup.Enabled();
    if(modeMenu!=null){
     modeMenu.DropDownItems[0].Text=(preferences.Mode==ConnectorMode.Support?"✓ ":"")+"Временная поддержка";
     modeMenu.DropDownItems[1].Text=(preferences.Mode==ConnectorMode.Resident?"✓ ":"")+"Постоянный агент";
