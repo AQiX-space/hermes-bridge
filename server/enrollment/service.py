@@ -39,6 +39,7 @@ class Enrollment:
                 d.execute('ALTER TABLE requests ADD COLUMN expires_at INTEGER')
             # Client-provided diagnostic metadata; never use as security identity.
             cols={c[1] for c in d.execute('PRAGMA table_info(requests)')}
+            if 'requested_mode' not in cols:d.execute("ALTER TABLE requests ADD COLUMN requested_mode TEXT NOT NULL DEFAULT 'support'")
             if 'computer_name' not in cols:d.execute('ALTER TABLE requests ADD COLUMN computer_name TEXT')
             if 'local_ipv4' not in cols:d.execute('ALTER TABLE requests ADD COLUMN local_ipv4 TEXT')
             d.execute('UPDATE requests SET last_seen=created WHERE last_seen IS NULL')
@@ -66,9 +67,10 @@ class Enrollment:
     def recent_events(self,limit=50):
         with self.db() as d:
             return [dict(row) for row in d.execute('SELECT ts,event,device,slot,ticket_hash,actor FROM audit_events ORDER BY id DESC LIMIT ?',(min(max(1,int(limit)),200),))]
-    def submit(self,device,key,computer_name=None,local_ipv4=None):
+    def submit(self,device,key,computer_name=None,local_ipv4=None,requested_mode='support'):
         if not isinstance(device,str) or not re.fullmatch(r'[a-zA-Z0-9._-]{1,64}',device):raise ValueError('bad device')
         key=public_key(key)
+        if requested_mode not in ('support','resident'):raise ValueError('invalid requested mode')
         if computer_name is not None and (not isinstance(computer_name,str) or not re.fullmatch(r'[a-zA-Z0-9._-]{1,64}',computer_name)):
             raise ValueError('invalid computer name')
         if local_ipv4 is not None:
@@ -83,6 +85,8 @@ class Enrollment:
             # Reopening a Connector must not create a second request or consume the rate limit.
             existing=d.execute('SELECT ticket FROM requests WHERE device=? AND key=? AND status=? AND last_seen>? ORDER BY created DESC LIMIT 1',(device,key,'pending',now-900)).fetchone()
             if existing:
+                old=d.execute('SELECT requested_mode FROM requests WHERE ticket=?',(existing['ticket'],)).fetchone()
+                if old['requested_mode']!=requested_mode:raise ValueError('cannot change mode for pending ticket')
                 if self.code_for_unsafe(d,existing['ticket']) is None:
                     d.execute('UPDATE requests SET code=? WHERE ticket=?',(self.new_code(d,now),existing['ticket']))
                 return existing['ticket']
@@ -91,7 +95,7 @@ class Enrollment:
             recent=d.execute('SELECT COUNT(*) FROM requests WHERE device=? AND created>?',(device,now-900)).fetchone()[0]
             if recent>=3:raise OverflowError('registration rate limit')
             code=self.new_code(d,now)
-            d.execute('INSERT INTO requests(ticket,device,key,created,status,slot,config,code,last_seen,computer_name,local_ipv4) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(ticket,device,key,now,'pending',None,None,code,now,computer_name,local_ipv4))
+            d.execute('INSERT INTO requests(ticket,device,key,created,status,slot,config,code,last_seen,computer_name,local_ipv4,requested_mode) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',(ticket,device,key,now,'pending',None,None,code,now,computer_name,local_ipv4,requested_mode))
             self.audit(d,'requested',{'ticket':ticket,'device':device,'slot':None})
         return ticket
     @staticmethod
@@ -136,7 +140,7 @@ class Enrollment:
             raise ValueError('invalid bridge code')
         now=int(time.time())
         with self.db() as d:
-            all_matches=d.execute('SELECT ticket,device,key,code,last_seen,status,slot,computer_name,local_ipv4 FROM requests WHERE lower(code)=lower(?)',(code,)).fetchall()
+            all_matches=d.execute('SELECT ticket,device,key,code,last_seen,status,slot,computer_name,local_ipv4,requested_mode FROM requests WHERE lower(code)=lower(?)',(code,)).fetchall()
             fresh=[r for r in all_matches if r['status']=='pending' and r['last_seen'] is not None and now-r['last_seen']<=900]
             if len(fresh)!=1:
                 return {'status':'ambiguous' if len(fresh)>1 else ('expired' if any(r['status']== 'pending' for r in all_matches) else 'not_found'),
@@ -153,7 +157,7 @@ class Enrollment:
                    'same_device':r['device']==current['device']} for r in old]
         return {'status':'blocked' if blockers else 'ready','code':current['code'],
                 'device':current['device'],'computer_name':current['computer_name'],
-                'local_ipv4':current['local_ipv4'],'blockers':blockers}
+                'local_ipv4':current['local_ipv4'],'requested_mode':current['requested_mode'],'blockers':blockers}
 
     def approve(self,ticket,slot,host,hostkey,apply=False,keys_file=None,code=None,approval_ttl_seconds=7200):
         if slot is not None and not 23000<=slot<=24999:raise ValueError('invalid slot')
@@ -417,7 +421,7 @@ def handler(db,keys_file=Path('/var/lib/hermes-bridge/.ssh/authorized_keys'),clo
             try:
                 size=int(self.headers.get('Content-Length','0'))
                 if not 0<size<=4096:return self.send(413,{'error':'size'})
-                obj=json.loads(self.rfile.read(size));ticket=db.submit(obj['device'],obj['public_key'],obj.get('computer_name'),obj.get('local_ipv4'))
+                obj=json.loads(self.rfile.read(size));ticket=db.submit(obj['device'],obj['public_key'],obj.get('computer_name'),obj.get('local_ipv4'),obj.get('requested_mode','support'))
                 self.send(202,{'ticket':ticket,'status':'pending','code':db.code_for(ticket)})
             except OverflowError:self.send(429,{'error':'too many requests'})
             except (ValueError,KeyError,TypeError):self.send(400,{'error':'invalid device key'})
@@ -468,7 +472,7 @@ def main():
     elif a.action=='doctor':print(json.dumps(db.doctor(a.keys_file),ensure_ascii=False))
     elif a.action=='preflight':print(json.dumps(db.preflight(a.code),ensure_ascii=False))
     elif a.action=='pending':
-        with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created,code,computer_name,local_ipv4 FROM requests WHERE status='pending' AND last_seen>?",(int(time.time())-900,))]))
+        with db.db() as conn:print(json.dumps([dict(r) for r in conn.execute("SELECT ticket,device,key,created,code,computer_name,local_ipv4,requested_mode FROM requests WHERE status='pending' AND last_seen>?",(int(time.time())-900,))]))
     elif a.action=='approve':print(json.dumps(db.approve(a.ticket,a.slot,a.host,a.hostkey,a.apply,a.keys_file,code=a.code,approval_ttl_seconds=a.ttl_seconds),indent=2))
     elif a.action=='replace-stale':print(json.dumps(db.replace_stale(a.old_ticket,a.ticket,a.code,a.host,a.hostkey,a.keys_file,slot=a.slot,apply=a.apply,ttl_seconds=a.ttl_seconds),indent=2))
     elif a.action=='revoke':

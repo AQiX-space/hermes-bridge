@@ -29,7 +29,7 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), shortcut=new Button(); LinkLabel updates=new LinkLabel(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), sshServerInstall=new LinkLabel(), emergencyLink=new LinkLabel(); Button logToggle=new Button(); Label logTitle=new Label(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu; ToolStripMenuItem modeMenu;
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), sshServerInstall=new LinkLabel(), emergencyLink=new LinkLabel(); Button logToggle=new Button(); Label logTitle=new Label(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu; ToolStripMenuItem modeMenu; ToolStripMenuItem codeMenu; string announcedCode="";
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(bool startedAsResident=false){
    launchResident=startedAsResident;
@@ -111,6 +111,9 @@ namespace HermesBridge {
    modeMenu.DropDownItems.Add("Временная поддержка",null,(sender,e)=>SwitchMode(ConnectorMode.Support));
    modeMenu.DropDownItems.Add("Постоянный агент",null,(sender,e)=>SwitchMode(ConnectorMode.Resident));
    menu.Items.Add(modeMenu);
+   codeMenu=new ToolStripMenuItem("Код МОСТ");codeMenu.Visible=false;
+   codeMenu.Click+=(sender,e)=>{if(!String.IsNullOrEmpty(activeMostCode))Clipboard.SetText(activeMostCode);};
+   menu.Items.Add(codeMenu);
    recoverMenu=new ToolStripMenuItem("Аварийный переход на GR2 (DE2 недоступен)");
    recoverMenu.Click+=async (sender,e)=>await RecoverFromDeadGateAsync();
    menu.Items.Add(recoverMenu);
@@ -281,6 +284,9 @@ namespace HermesBridge {
   }
   async void SwitchMode(ConnectorMode next){
    if(next==preferences.Mode)return;
+   if(running||enrolling||revoking||revocationPending||File.Exists(Path.Combine(root,"approval-ticket"))){
+    Status("Сначала заверши текущее разрешение МОСТ; изменение режима требует нового подтверждения на сервере.");return;
+   }
    if(next==ConnectorMode.Resident){
     string message="Включить постоянный агент для текущего пользователя Windows?\n\n"+
      "Коннектор будет запускаться после входа в этот профиль и восстанавливать туннель. " +
@@ -310,6 +316,13 @@ namespace HermesBridge {
    state.ForeColor=running&&processAlive&&forwardConfirmed&&userAgent!=null?Color.FromArgb(22,101,52):running?blue:ink;
    connectionInfo.Text=value;
    deviceInfo.Text="ПК: "+Environment.MachineName+" · IPv4: "+(EnrollmentClient.LocalIPv4()??"не определён");mostCode.Text=activeMostCode;
+   if(codeMenu!=null){codeMenu.Visible=!String.IsNullOrWhiteSpace(activeMostCode);codeMenu.Text="Код МОСТ: "+activeMostCode+" — копировать";}
+   if(!String.IsNullOrWhiteSpace(activeMostCode)&&value.StartsWith("Код МОСТ: ",StringComparison.Ordinal)&&announcedCode!=activeMostCode){
+    announcedCode=activeMostCode;
+    tray.BalloonTipTitle="Нужно подтверждение МОСТ";
+    tray.BalloonTipText="Код "+activeMostCode+". Передай его оператору для разрешения подключения.";
+    if(tray.Visible)tray.ShowBalloonTip(5000);
+   }
    expiryInfo.Text=running&&preferences.Mode==ConnectorMode.Support&&autoDisconnect.Checked?"Отключение: "+deadline.ToLocalTime().ToString("HH:mm"):"Автоотключение выключено";
    bool connected=running&&processAlive&&forwardConfirmed&&userAgent!=null;
    start.Visible=preferences.Mode==ConnectorMode.Support&&!running&&!enrolling&&!revoking&&!revocationPending;
@@ -518,7 +531,7 @@ namespace HermesBridge {
      resumePending=false;
      while(ticket==null&&!cancelEnrollment&&generation==enrollmentGeneration){
      bool retry=false;
-     try{ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim());}
+     try{ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim(),preferences.Mode==ConnectorMode.Resident);}
      catch(WebException ex){
       var response=ex.Response as HttpWebResponse;
       bool transient=response!=null&&(response.StatusCode==HttpStatusCode.ServiceUnavailable||(int)response.StatusCode==429||response.StatusCode==HttpStatusCode.BadGateway||response.StatusCode==HttpStatusCode.GatewayTimeout);

@@ -108,6 +108,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\ConnectorPreferencesTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: User-scoped Windows autostart enable and removal tests
+        shell: pwsh
+        run: |
+          $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:exe /out:WindowsStartupTests.exe src\WindowsStartup.cs tests\WindowsStartupTests.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\WindowsStartupTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Current-user local agent authentication and identity tests
         shell: pwsh
         run: |
@@ -159,6 +167,7 @@ jobs:
           python server/enrollment/test_registry.py
           python server/enrollment/test_http.py
           python server/enrollment/test_request_diagnostics.py
+          python server/enrollment/test_resident_mode.py
           python server/enrollment/test_multi_device.py
       - name: Enrollment regression tests
         shell: pwsh

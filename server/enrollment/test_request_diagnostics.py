@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory() as tmp:
         original=post(payload)
         code=original['code']; old_ticket=original['ticket']
         assert len(code)==4
-        assert db.preflight(code,listeners=set())=={'status':'ready','code':code,'device':'FriendlyAlias','computer_name':'MINIKO','local_ipv4':'192.168.100.23','blockers':[]}
+        assert db.preflight(code,listeners=set())=={'status':'ready','code':code,'device':'FriendlyAlias','computer_name':'MINIKO','local_ipv4':'192.168.100.23','requested_mode':'support','blockers':[]}
         with db.db() as conn:
             row=conn.execute('SELECT computer_name,local_ipv4 FROM requests WHERE ticket=?',(old_ticket,)).fetchone()
             assert (row['computer_name'],row['local_ipv4'])==('MINIKO','192.168.100.23')
