@@ -3,11 +3,12 @@
 Requires SELECT permission to broker SQLite DB. Never outputs bearer ticket.
 """
 import argparse,base64,hashlib,hmac,json,socket,sqlite3,time,uuid
+from contextlib import closing
 
 def execute(database,slot,script):
     if not 23000<=slot<=24999:raise ValueError('invalid MOS port')
     if not 1<=len(script)<=4096:raise ValueError('invalid command size')
-    with sqlite3.connect('file:'+database+'?mode=ro',uri=True) as db:
+    with closing(sqlite3.connect('file:'+database+'?mode=ro',uri=True)) as db:
         db.row_factory=sqlite3.Row
         rows=db.execute("SELECT ticket,device,status,expires_at FROM requests WHERE slot=? AND status='approved'",(slot,)).fetchall()
     if len(rows)!=1:raise ValueError('MOS slot not uniquely approved')

@@ -1,6 +1,7 @@
 """Operator-to-agent auth over loopback, test-only mock with real broker SQLite rows."""
 import base64,hashlib,hmac,importlib.util,json,os,socketserver,sqlite3,tempfile,threading,time,unittest
 from pathlib import Path
+from contextlib import closing
 spec=importlib.util.spec_from_file_location('operator',Path(__file__).resolve().parents[1]/'ops'/'hermes-user-command.py')
 operator=importlib.util.module_from_spec(spec);spec.loader.exec_module(operator)
 class Protocol(socketserver.BaseRequestHandler):
@@ -22,16 +23,18 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
         self.database=str(Path(self.temp.name)/'broker.sqlite3')
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db:
             db.execute('CREATE TABLE requests(ticket TEXT,device TEXT,status TEXT,slot INTEGER,expires_at INTEGER)')
+            db.commit()
         self.listener=None
     def tearDown(self):
         if self.listener:
             self.listener.shutdown();self.listener.server_close()
         self.temp.cleanup()
     def add(self,ticket,slot,status='approved',expires=3600):
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db:
             db.execute('INSERT INTO requests VALUES (?,?,?,?,?)',(ticket,'ALEXHUB',status,slot,int(time.time()+expires)))
+            db.commit()
     def test_approved_request_signed_and_sent(self):
         self.listener=socketserver.TCPServer(('127.0.0.1',0),Protocol)
         slot=self.listener.server_address[1]
