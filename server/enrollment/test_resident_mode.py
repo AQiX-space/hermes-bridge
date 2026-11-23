@@ -5,18 +5,25 @@ KEY='ssh-ed25519 '+base64.b64encode(b'\0\0\0\x0bssh-ed25519\0\0\0\x20'+bytes(ran
 with tempfile.TemporaryDirectory() as tmp:
     root=pathlib.Path(tmp)
     broker=Enrollment(root/'db.sqlite')
-    resident=broker.submit('RESIDENT-PC',KEY,requested_mode='resident')
+    resident=broker.submit('RESIDENT-PC',KEY,requested_mode='resident',requested_lease_seconds=0)
     code=broker.code_for(resident)
     assert broker.preflight(code,listeners=set())['requested_mode']=='resident'
+    assert broker.preflight(code,listeners=set())['requested_lease_seconds']==0
     assert broker.poll(resident)=={'status':'pending'}
     try:broker.submit('RESIDENT-PC',KEY,requested_mode='support')
     except ValueError:pass
     else:raise AssertionError('Pending ticket mode changed silently')
+    try:broker.submit('RESIDENT-PC',KEY,requested_mode='resident',requested_lease_seconds=300)
+    except ValueError:pass
+    else:raise AssertionError('Resident mode requested an implicit finite lease')
     try:broker.submit('BAD-PC',KEY,requested_mode='system')
     except ValueError:pass
     else:raise AssertionError('Unrecognized privilege mode was accepted')
     auth=root/'authorized_keys';auth.write_text('')
     server_key=KEY
+    try:broker.approve(resident,None,'gr2.touch01.top',server_key,code=code)
+    except ValueError:pass
+    else:raise AssertionError('Broker silently changed indefinite request to a 2-hour grant')
     dry=broker.approve(resident,None,'gr2.touch01.top',server_key,code=code,approval_ttl_seconds=0)
     assert dry['dry_run'] and broker.poll(resident)=={'status':'pending'}
     broker.approve(resident,None,'gr2.touch01.top',server_key,code=code,approval_ttl_seconds=0,apply=True,keys_file=auth)

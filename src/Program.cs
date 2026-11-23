@@ -531,7 +531,7 @@ namespace HermesBridge {
      resumePending=false;
      while(ticket==null&&!cancelEnrollment&&generation==enrollmentGeneration){
      bool retry=false;
-     try{ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim(),preferences.Mode==ConnectorMode.Resident);}
+     try{ticket=await EnrollmentClient.SubmitAsync(endpoint,device.Text.Trim(),File.ReadAllText(Key+".pub").Trim(),preferences.Mode==ConnectorMode.Resident,preferences.Mode==ConnectorMode.Support&&autoDisconnect.Checked?(int)ttl.Value*60:0);}
      catch(WebException ex){
       var response=ex.Response as HttpWebResponse;
       bool transient=response!=null&&(response.StatusCode==HttpStatusCode.ServiceUnavailable||(int)response.StatusCode==429||response.StatusCode==HttpStatusCode.BadGateway||response.StatusCode==HttpStatusCode.GatewayTimeout);

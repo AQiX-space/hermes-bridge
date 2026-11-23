@@ -46,13 +46,13 @@ namespace HermesBridge {
     return fallback;
    }catch{return null;}
   }
-  public static async Task<EnrollmentTicket> SubmitAsync(Uri endpoint,string device,string publicKey,bool resident=false){
+  public static async Task<EnrollmentTicket> SubmitAsync(Uri endpoint,string device,string publicKey,bool resident=false,int leaseSeconds=7200){
    CheckEndpoint(endpoint);
    if(!Regex.IsMatch(device??"",@"^[a-zA-Z0-9._-]{1,64}$"))throw new InvalidDataException("Bad device name");
    return await Task.Run(()=>{
     ServicePointManager.SecurityProtocol|=SecurityProtocolType.Tls12;
     var req=(HttpWebRequest)WebRequest.Create(new Uri(endpoint,"/v1/enroll"));req.Method="POST";req.ContentType="application/json";req.Timeout=15000;
-    var payload=Encoding.UTF8.GetBytes(Parser.Serialize(new{device=device,public_key=publicKey.Trim(),computer_name=Environment.MachineName,local_ipv4=LocalIPv4(),requested_mode=resident?"resident":"support"}));
+    var payload=Encoding.UTF8.GetBytes(Parser.Serialize(new{device=device,public_key=publicKey.Trim(),computer_name=Environment.MachineName,local_ipv4=LocalIPv4(),requested_mode=resident?"resident":"support",requested_lease_seconds=resident?0:leaseSeconds}));
     if(payload.Length>4096)throw new InvalidDataException("Public key request too long");
     using(var st=req.GetRequestStream())st.Write(payload,0,payload.Length);
     using(var res=(HttpWebResponse)req.GetResponse())using(var reader=new StreamReader(res.GetResponseStream())){
