@@ -16,7 +16,7 @@ namespace HermesBridge {
  }
  sealed class BridgeForm : Form {
   readonly bool launchResident;
-  ConnectorPreferences preferences=new ConnectorPreferences();
+  ConnectorPreferences preferences=new ConnectorPreferences(); ActivityJournal journal;
   bool loadingPrefs=false;DateTime sessionStarted=DateTime.MinValue;
   string PrefsPath {get{return Path.Combine(root,"ui-preferences.ini");}}
   readonly string root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesBridge");
@@ -35,7 +35,7 @@ namespace HermesBridge {
    launchResident=startedAsResident;
    Text="Hermes Connector 0.3.0-dev"; Width=495;Height=578;MinimumSize=new Size(495,578);MaximumSize=new Size(900,578);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
-   Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
+   Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));journal=new ActivityJournal(Path.Combine(root,"activity.log"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",19,FontStyle.Bold),Left=30,Top=24,Width=388,Height=42};Controls.Add(heading);
    subtitle=new Label(){Text="0.3.0-dev · сеанс пользователя",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=28,Top=167,Width=403,Height=130,BackColor=surface};Controls.Add(card);
@@ -130,7 +130,7 @@ namespace HermesBridge {
     await CheckAndInstallUpdateAsync(true);
    };
    heartbeat.Interval=2000;heartbeat.Tick+=async (s,e)=>{if(tickBusy)return;tickBusy=true;try{await TickAsync();}finally{tickBusy=false;}};heartbeat.Start();
-   LoadSettings();RestorePreferences();EnsureDesktopShortcut();FormClosing+=(s,e)=>{if(!quitting){e.Cancel=true;Hide();}else{StopBridge();tray.Visible=false;tray.Dispose();if(connectedTrayIcon!=null)connectedTrayIcon.Dispose();}};
+   LoadSettings();RestorePreferences();actionLog.Text=journal.Tail();EnsureDesktopShortcut();FormClosing+=(s,e)=>{if(!quitting){e.Cancel=true;Hide();}else{StopBridge();tray.Visible=false;tray.Dispose();if(connectedTrayIcon!=null)connectedTrayIcon.Dispose();}};
   }
   async System.Threading.Tasks.Task CheckAndInstallUpdateAsync(bool automatic){
    if(updating||quitting)return;
@@ -348,8 +348,11 @@ namespace HermesBridge {
   }
   void LogAction(string message){
    if(String.IsNullOrWhiteSpace(message)||actionLog.IsDisposed)return;
+   string sanitized=ActivityJournal.Sanitize(message);
+   if(String.IsNullOrWhiteSpace(sanitized))return;
+   try{journal.Append(message);}catch(IOException){}catch(UnauthorizedAccessException){}
    if(actionLog.TextLength>24000)actionLog.Text=actionLog.Text.Substring(actionLog.TextLength-12000);
-   actionLog.AppendText(DateTime.Now.ToString("HH:mm:ss")+"  "+message+Environment.NewLine);
+   actionLog.AppendText(DateTime.Now.ToString("HH:mm:ss")+"  "+sanitized+Environment.NewLine);
   }
   void UpdateSshState(){
    bool installed=File.Exists(Ssh);
