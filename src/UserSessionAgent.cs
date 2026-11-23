@@ -21,6 +21,7 @@ namespace HermesBridge {
   public sealed class Request { public long ts {get;set;} public string nonce {get;set;} public string script {get;set;} public string mac {get;set;} }
   sealed class Result { public bool ok {get;set;} public string user {get;set;} public int exit_code {get;set;} public string stdout {get;set;} public string stderr {get;set;} public string error {get;set;} }
   readonly TcpListener listener;
+  readonly Action<string> audit;
   readonly byte[] key;
   readonly object gate=new object();
   readonly HashSet<string> used=new HashSet<string>(StringComparer.Ordinal);
@@ -30,7 +31,8 @@ namespace HermesBridge {
   bool busy=false;
   public int Port {get;private set;}
   public string UserName {get;private set;}
-  public UserSessionAgent(string brokerTicket){
+  public UserSessionAgent(string brokerTicket,Action<string> onAudit=null){
+   audit=onAudit;
    if(String.IsNullOrWhiteSpace(brokerTicket)||brokerTicket.Length<40)throw new InvalidDataException("Broker session ticket is missing");
    using(var sha=SHA256.Create())key=sha.ComputeHash(Encoding.UTF8.GetBytes("Hermes user-agent HMAC v1\n"+brokerTicket));
    using(var identity=WindowsIdentity.GetCurrent())UserName=identity.Name;
@@ -70,8 +72,12 @@ namespace HermesBridge {
       catch{Write(stream,new Result{ok=false,error="Malformed request"});return;}
       if(!Authenticate(req)){Write(stream,new Result{ok=false,error="Unauthorized"});return;}
       lock(gate){if(closed||busy){Write(stream,new Result{ok=false,error="Agent busy or stopped"});return;}busy=true;}
-      try{Write(stream,Run(req.script));}
-      finally{lock(gate){busy=false;}}
+      try{
+       if(audit!=null)audit("Авторизованная команда в сеансе "+UserName+" начата.");
+       Result result=Run(req.script);
+       if(audit!=null)audit("Команда завершена: "+(result.ok?"успешно":"ошибка")+", код "+result.exit_code+".");
+       Write(stream,result);
+      }finally{lock(gate){busy=false;}}
      }
     }catch(IOException){}catch(ObjectDisposedException){}catch(Exception){}
    }

@@ -12,9 +12,13 @@ using System.Threading.Tasks;
 
 namespace HermesBridge {
  static class App {
-  [STAThread] static void Main(string[] args){if(args.Length>0 && args[0]=="--probe"){var a=new string[args.Length-1];Array.Copy(args,1,a,0,a.Length);Environment.ExitCode=TunnelProbe.Run(a);return;}Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);Application.Run(new BridgeForm());}
+  [STAThread] static void Main(string[] args){if(args.Length>0 && args[0]=="--probe"){var a=new string[args.Length-1];Array.Copy(args,1,a,0,a.Length);Environment.ExitCode=TunnelProbe.Run(a);return;}Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);Application.Run(new BridgeForm(args.Length>0&&args[0]=="--resident"));}
  }
  sealed class BridgeForm : Form {
+  readonly bool launchResident;
+  ConnectorPreferences preferences=new ConnectorPreferences();
+  bool loadingPrefs=false;DateTime sessionStarted=DateTime.MinValue;
+  string PrefsPath {get{return Path.Combine(root,"ui-preferences.ini");}}
   readonly string root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesBridge");
   TextBox host=new TextBox(),port=new TextBox(),slot=new TextBox(),known=new TextBox(),device=new TextBox();
   NumericUpDown ttl=new NumericUpDown(); CheckBox autoDisconnect=new CheckBox(); Label mostCode=new Label(); Label state=new Label(); Button start=new Button(),stop=new Button(),reload=new Button(),save=new Button(),import=new Button();
@@ -25,10 +29,11 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), shortcut=new Button(); LinkLabel updates=new LinkLabel(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), emergencyLink=new LinkLabel(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu;
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), sshServerInstall=new LinkLabel(), emergencyLink=new LinkLabel(); Button logToggle=new Button(); Label logTitle=new Label(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu; ToolStripMenuItem modeMenu;
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
-  public BridgeForm(){
-   Text="Hermes Connector 0.3.0-dev"; Width=890;Height=566;MinimumSize=new Size(890,566);MaximumSize=new Size(890,566);StartPosition=FormStartPosition.CenterScreen;
+  public BridgeForm(bool startedAsResident=false){
+   launchResident=startedAsResident;
+   Text="Hermes Connector 0.3.0-dev"; Width=495;Height=578;MinimumSize=new Size(495,578);MaximumSize=new Size(900,578);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",19,FontStyle.Bold),Left=30,Top=24,Width=388,Height=42};Controls.Add(heading);
@@ -71,17 +76,22 @@ namespace HermesBridge {
    installSsh.Text="Установить сервер";installSsh.SetBounds(303,123,128,25);installSsh.TextAlign=ContentAlignment.MiddleRight;installSsh.LinkColor=blue;Controls.Add(installSsh);
    sshCheck.Text="Проверить";sshCheck.SetBounds(303,123,128,25);sshCheck.TextAlign=ContentAlignment.MiddleRight;sshCheck.LinkColor=blue;Controls.Add(sshCheck);
    sshCheck.Click+=(s,e)=>Status("Текущий пользователь: "+WindowsIdentity.GetCurrent().Name+". Подключение не требует Windows SSH Server.");
-   installSsh.Click+=async (s,e)=>await InstallOpenSshAsync();
+   installSsh.Click+=async (s,e)=>await InstallOpenSshAsync(SshComponent.Client);
+   sshServerInstall.Text="Установить SSH Server";sshServerInstall.SetBounds(284,146,147,22);sshServerInstall.TextAlign=ContentAlignment.MiddleRight;sshServerInstall.LinkColor=blue;Controls.Add(sshServerInstall);
+   sshServerInstall.Click+=async (s,e)=>await InstallOpenSshAsync(SshComponent.Server);
    shortcut.Parent= this;shortcut.SetBounds(28,376,190,37);shortcut.Visible=true;
    closeApp.Text="Закрыть Connector";closeApp.SetBounds(230,376,201,37);closeApp.Click+=async (s,e)=>await ExitWithRevokeAsync();Controls.Add(closeApp);
-   Label logTitle=new Label(){Text="Журнал действий",Left=467,Top=33,Width=376,Height=28,Font=new Font("Segoe UI Semibold",13,FontStyle.Bold)};Controls.Add(logTitle);
-   actionLog.SetBounds(463,78,395,401);actionLog.Multiline=true;actionLog.ScrollBars=ScrollBars.Vertical;actionLog.ReadOnly=true;actionLog.BorderStyle=BorderStyle.FixedSingle;actionLog.BackColor=Color.FromArgb(251,249,246);actionLog.ForeColor=ink;actionLog.Font=new Font("Consolas",9);Controls.Add(actionLog);
-   copyLog.Text="Копировать журнал";copyLog.SetBounds(674,492,184,30);copyLog.Click+=(s,e)=>Clipboard.SetText(actionLog.Text);Controls.Add(copyLog);
+   logTitle=new Label(){Text="Журнал действий",Left=467,Top=33,Width=376,Height=28,Font=new Font("Segoe UI Semibold",13,FontStyle.Bold)};Controls.Add(logTitle);
+   actionLog.SetBounds(463,78,395,440);actionLog.Multiline=true;actionLog.ScrollBars=ScrollBars.Vertical;actionLog.ReadOnly=true;actionLog.BorderStyle=BorderStyle.FixedSingle;actionLog.BackColor=Color.FromArgb(251,249,246);actionLog.ForeColor=ink;actionLog.Font=new Font("Consolas",9);Controls.Add(actionLog);
+   copyLog.Text="Копировать журнал";copyLog.SetBounds(674,528,184,30);copyLog.Click+=(s,e)=>Clipboard.SetText(actionLog.Text);Controls.Add(copyLog);
+   logToggle.Text="Журнал действий  ▸";logToggle.SetBounds(28,483,403,31);Controls.Add(logToggle);
+   logToggle.Click+=(sender,e)=>SetLogExpanded(!preferences.LogExpanded);
    autoDisconnect.Text="Автоматическое отключение";autoDisconnect.SetBounds(30,429,238,28);autoDisconnect.Checked=false;Controls.Add(autoDisconnect);
    ttl.Parent=this;ttl.SetBounds(302,429,75,28);ttl.Minimum=5;ttl.Maximum=1440;ttl.Value=60;ttl.Enabled=false;
-   autoDisconnect.CheckedChanged+=(sender,e)=>{ttl.Enabled=autoDisconnect.Checked;if(running)deadline=autoDisconnect.Checked?DateTime.UtcNow.AddMinutes((double)ttl.Value):DateTime.MaxValue;Status("Настройки таймера изменены.");};
+   autoDisconnect.CheckedChanged+=(sender,e)=>{ttl.Enabled=autoDisconnect.Checked;if(loadingPrefs)return;if(running){sessionStarted=DateTime.UtcNow;UpdateDeadline();}SavePreferences();Status("Настройки таймера изменены.");};
+   ttl.ValueChanged+=(sender,e)=>{if(loadingPrefs)return;if(running){sessionStarted=DateTime.UtcNow;UpdateDeadline();}SavePreferences();};
    Controls.Add(new Label(){Text="мин",Left=384,Top=434,Width=45});
-   uninstall.Text="Полностью удалить Connector";uninstall.SetBounds(28,496,403,30);uninstall.FlatStyle=FlatStyle.Flat;uninstall.ForeColor=Color.FromArgb(176,56,56);Controls.Add(uninstall);
+   uninstall.Text="Полностью удалить Connector";uninstall.SetBounds(28,524,403,30);uninstall.FlatStyle=FlatStyle.Flat;uninstall.ForeColor=Color.FromArgb(176,56,56);Controls.Add(uninstall);
    uninstall.Click+=async (s,e)=>await UninstallConnectorAsync();
    UpdateSshState();
    Icon=System.Drawing.Icon.ExtractAssociatedIcon(System.Reflection.Assembly.GetExecutingAssembly().Location);tray.Icon=Icon;tray.Text="Hermes Connector";tray.Visible=true;tray.DoubleClick+=(s,e)=>ShowMain();tray.BalloonTipTitle="Hermes Connector";tray.BalloonTipText="Работает в области уведомлений. Двойной щелчок открывает окно.";
@@ -97,6 +107,10 @@ namespace HermesBridge {
     gatewayMenu.DropDownItems.Add(item);
    }
    menu.Items.Add(gatewayMenu);
+   modeMenu=new ToolStripMenuItem("Режим работы");
+   modeMenu.DropDownItems.Add("Временная поддержка",null,(sender,e)=>SwitchMode(ConnectorMode.Support));
+   modeMenu.DropDownItems.Add("Постоянный агент",null,(sender,e)=>SwitchMode(ConnectorMode.Resident));
+   menu.Items.Add(modeMenu);
    recoverMenu=new ToolStripMenuItem("Аварийный переход на GR2 (DE2 недоступен)");
    recoverMenu.Click+=async (sender,e)=>await RecoverFromDeadGateAsync();
    menu.Items.Add(recoverMenu);
@@ -105,9 +119,12 @@ namespace HermesBridge {
    updateTimer.Interval=6*60*60*1000;
    updateTimer.Tick+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
    updateTimer.Start();
-   Shown+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
+   Shown+=async (s,e)=>{
+    if(preferences.Mode==ConnectorMode.Resident&&WindowsStartup.Enabled()){Hide();if(!running&&!enrolling)await StartOrEnrollAsync();}
+    await CheckAndInstallUpdateAsync(true);
+   };
    heartbeat.Interval=2000;heartbeat.Tick+=async (s,e)=>{if(tickBusy)return;tickBusy=true;try{await TickAsync();}finally{tickBusy=false;}};heartbeat.Start();
-   LoadSettings();EnsureDesktopShortcut();FormClosing+=(s,e)=>{if(!quitting){e.Cancel=true;Hide();}else{StopBridge();tray.Visible=false;tray.Dispose();if(connectedTrayIcon!=null)connectedTrayIcon.Dispose();}};
+   LoadSettings();RestorePreferences();EnsureDesktopShortcut();FormClosing+=(s,e)=>{if(!quitting){e.Cancel=true;Hide();}else{StopBridge();tray.Visible=false;tray.Dispose();if(connectedTrayIcon!=null)connectedTrayIcon.Dispose();}};
   }
   async System.Threading.Tasks.Task CheckAndInstallUpdateAsync(bool automatic){
    if(updating||quitting)return;
@@ -147,6 +164,7 @@ namespace HermesBridge {
     string expectedRoot=Path.GetFullPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesBridge"));
     if(!String.Equals(Path.GetFullPath(root).TrimEnd('\\'),expectedRoot.TrimEnd('\\'),StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("Неправильная папка приложения");
     if(!await EnsureRevokedAsync())throw new InvalidOperationException("Gate не подтвердил отзыв доступа. Повтори после восстановления связи.");
+    if(WindowsStartup.Enabled())WindowsStartup.Disable();
     int ownPid=Process.GetCurrentProcess().Id;
     // Detached helper waits for this process to EXIT before deleting its locked executable.
     // Remove-Item deletes directly, NOT via the Recycle Bin; never empty the whole Bin.
@@ -205,7 +223,85 @@ namespace HermesBridge {
    }
   }
   [System.Runtime.InteropServices.DllImport("user32.dll")]static extern bool DestroyIcon(IntPtr handle);
-  void ShowMain(){Show();WindowState=FormWindowState.Normal;Activate();}
+  void ShowMain(){
+   if(preferences.Mode==ConnectorMode.Resident){
+    tray.BalloonTipTitle="Hermes Connector — постоянный агент";
+    tray.BalloonTipText=running?"Подключение контролируется автоматически. "+host.Text:"Ожидает подтверждения или восстановления соединения.";
+    tray.ShowBalloonTip(3500);return;
+   }
+   Show();WindowState=FormWindowState.Normal;Activate();
+  }
+  void RestorePreferences(){
+   loadingPrefs=true;
+   try{
+    preferences=ConnectorPreferences.Load(PrefsPath);
+    if(preferences.Mode==ConnectorMode.Resident&&!WindowsStartup.Enabled())preferences.Mode=ConnectorMode.Support;
+    autoDisconnect.Checked=preferences.AutoDisconnect;
+    autoDisconnect.Enabled=preferences.Mode==ConnectorMode.Support;
+    ttl.Value=preferences.DisconnectMinutes;
+    ttl.Enabled=preferences.Mode==ConnectorMode.Support&&preferences.AutoDisconnect;
+    SetLogExpanded(preferences.LogExpanded,false);
+    UpdateModeMenu();
+   }finally{loadingPrefs=false;}
+  }
+  void SavePreferences(){
+   if(loadingPrefs)return;
+   preferences.AutoDisconnect=autoDisconnect.Checked&&preferences.Mode==ConnectorMode.Support;
+   preferences.DisconnectMinutes=(int)ttl.Value;
+   try{preferences.Save(PrefsPath);}catch(Exception ex){LogAction("Сохранение настроек: "+ex.Message);}
+  }
+  void SetLogExpanded(bool expanded,bool save=true){
+   preferences.LogExpanded=expanded;
+   bool visible=expanded&&preferences.Mode==ConnectorMode.Support;
+   logTitle.Visible=visible;actionLog.Visible=visible;copyLog.Visible=visible;
+   logToggle.Text=expanded?"Журнал действий  ◂":"Журнал действий  ▸";
+   Width=expanded?900:495;
+   if(save)SavePreferences();
+  }
+  void UpdateDeadline(){
+   deadline=preferences.Mode==ConnectorMode.Support&&autoDisconnect.Checked?
+    sessionStarted.AddMinutes((double)ttl.Value):DateTime.MaxValue;
+  }
+  void UpdateModeMenu(){
+   if(modeMenu!=null){
+    modeMenu.DropDownItems[0].Text=(preferences.Mode==ConnectorMode.Support?"✓ ":"")+"Временная поддержка";
+    modeMenu.DropDownItems[1].Text=(preferences.Mode==ConnectorMode.Resident?"✓ ":"")+"Постоянный агент";
+   }
+   autoDisconnect.Visible=preferences.Mode==ConnectorMode.Support;
+   ttl.Visible=preferences.Mode==ConnectorMode.Support;
+   autoDisconnect.Enabled=preferences.Mode==ConnectorMode.Support;
+   bool support=preferences.Mode==ConnectorMode.Support;
+   shortcut.Visible=support;closeApp.Visible=support;uninstall.Visible=support;
+   installSsh.Visible=support&&!File.Exists(Ssh);sshServerInstall.Visible=support;
+   sshCheck.Visible=support;updates.Visible=support;emergencyLink.Visible=support;
+   logToggle.Visible=support;
+   logTitle.Visible=support&&preferences.LogExpanded;
+   actionLog.Visible=support&&preferences.LogExpanded;
+   copyLog.Visible=support&&preferences.LogExpanded;
+  }
+  async void SwitchMode(ConnectorMode next){
+   if(next==preferences.Mode)return;
+   if(next==ConnectorMode.Resident){
+    string message="Включить постоянный агент для текущего пользователя Windows?\n\n"+
+     "Коннектор будет запускаться после входа в этот профиль и восстанавливать туннель. " +
+     "SSH-подключение не даёт бессрочных прав само по себе: постоянное разрешение отдельно утверждается на Gate. " +
+     "В трее останутся иконка и пункт «Выход».\n\nВключить автозапуск?";
+    if(MessageBox.Show(message,"Постоянный Hermes Connector",MessageBoxButtons.YesNo,MessageBoxIcon.Question,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return;
+    try{WindowsStartup.Enable(System.Reflection.Assembly.GetExecutingAssembly().Location);}
+    catch(Exception ex){Error("Не удалось включить автозапуск: "+ex.Message);return;}
+   }else{
+    try{WindowsStartup.Disable();}
+    catch(Exception ex){Error("Не удалось выключить автозапуск: "+ex.Message);return;}
+   }
+   preferences.Mode=next;
+   if(next==ConnectorMode.Resident)autoDisconnect.Checked=false;
+   UpdateModeMenu();UpdateDeadline();SavePreferences();
+   Status(next==ConnectorMode.Resident?"Постоянный режим включён: автозапуск при входе Windows.":"Временная поддержка: автозапуск выключен.");
+   if(next==ConnectorMode.Resident){
+    Hide();
+    if(!running&&!enrolling)await StartOrEnrollAsync();
+   }
+  }
   void Status(string value){
    if(state==null)return;
    bool processAlive=false;
@@ -214,9 +310,10 @@ namespace HermesBridge {
    state.ForeColor=running&&processAlive&&forwardConfirmed&&userAgent!=null?Color.FromArgb(22,101,52):running?blue:ink;
    connectionInfo.Text=value;
    deviceInfo.Text="ПК: "+Environment.MachineName+" · IPv4: "+(EnrollmentClient.LocalIPv4()??"не определён");mostCode.Text=activeMostCode;
-   expiryInfo.Text=running&&autoDisconnect.Checked?"Отключение: "+deadline.ToLocalTime().ToString("HH:mm"):"Автоотключение выключено";
+   expiryInfo.Text=running&&preferences.Mode==ConnectorMode.Support&&autoDisconnect.Checked?"Отключение: "+deadline.ToLocalTime().ToString("HH:mm"):"Автоотключение выключено";
    bool connected=running&&processAlive&&forwardConfirmed&&userAgent!=null;
-   start.Visible=!running&&!enrolling&&!revoking&&!revocationPending;stop.Visible=running||enrolling||revoking||revocationPending;start.Enabled=!running&&!enrolling&&!revoking&&!revocationPending;stop.Enabled=(running||enrolling||revocationPending)&&!revoking;
+   start.Visible=preferences.Mode==ConnectorMode.Support&&!running&&!enrolling&&!revoking&&!revocationPending;
+   stop.Visible=preferences.Mode==ConnectorMode.Support&&(running||enrolling||revoking||revocationPending);start.Enabled=!running&&!enrolling&&!revoking&&!revocationPending;stop.Enabled=(running||enrolling||revocationPending)&&!revoking;
    if(trayToggle!=null){trayToggle.Text=running||enrolling||revocationPending?"Отключить":"Подключить";trayToggle.Enabled=true;}
    if(tray.Visible){tray.Icon=connected&&connectedTrayIcon!=null?connectedTrayIcon:Icon;tray.Text=connected?"Hermes Connector — туннель открыт":enrolling?"Hermes Connector — ожидание":"Hermes Connector — отключён";}
    UpdateSshState();LogAction(value);
@@ -241,10 +338,14 @@ namespace HermesBridge {
      }
     }catch{}
    }
-   sshInfo.Text="Режим: пользователь "+WindowsIdentity.GetCurrent().Name+"\nSSH-транспорт: "+(installed?sshVersion:"клиент не установлен");
-   installSsh.Visible=!installed&&SshServerHealth.SupportsWindowsCapability();
-   installSsh.Text="Установить SSH-клиент";
-   sshCheck.Visible=installed;sshCheck.Text="Пользователь";sshCheck.Enabled=true;
+   using(var id=WindowsIdentity.GetCurrent()){
+    var principal=new WindowsPrincipal(id);
+    sshInfo.Text="Исполнение: "+id.Name+(principal.IsInRole(WindowsBuiltInRole.Administrator)?" [администратор]":"")+"\nSSH: "+(installed?sshVersion:"клиент не установлен");
+   }
+   installSsh.Visible=preferences.Mode==ConnectorMode.Support&&!installed&&SshServerHealth.SupportsWindowsCapability();
+   installSsh.Text="Установить SSH Client";
+   sshServerInstall.Visible=preferences.Mode==ConnectorMode.Support&&SshServerHealth.SupportsWindowsCapability();
+   sshCheck.Visible=preferences.Mode==ConnectorMode.Support&&installed;sshCheck.Text="Пользователь";sshCheck.Enabled=true;
   }
   static string ServerLabel(SshServerState state){
    switch(state){
@@ -270,33 +371,30 @@ namespace HermesBridge {
    }catch(Exception ex){sshHealth=null;if(notify)Status("Проверка OpenSSH не удалась: "+ex.Message);}
    finally{sshHealthBusy=false;UpdateSshState();}
   }
-  async Task InstallOpenSshAsync(){
-   if(sshHealthBusy)return;
-   bool isClient=!File.Exists(Ssh);
-   if(!SshServerHealth.SupportsWindowsCapability()){
-    Error("Автоматическая установка OpenSSH поддерживается на Windows 10 1809 / Windows Server 2019 и новее. Для этой ОС нужна ручная установка из проверенного источника Microsoft.");return;
-   }
-   string type=isClient?"Client":"Server";
-   string title=isClient?"OpenSSH Client":"OpenSSH Server";
-   if(MessageBox.Show("Установить штатный компонент Windows "+title+" через Windows Update или источник компонентов вашей организации?\n\nПотребуются права администратора. Connector не запускает sshd и не меняет её конфигурацию. Сам установщик Windows МОЖЕТ создать правило входящего TCP/22; перед запуском службы проверь его у администратора.","Hermes Connector",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
-   try {
-    // No third-party EXE and no downloaded script: DISM installs the Microsoft capability for THIS OS.
-    string script="$ErrorActionPreference='Stop'; $name='OpenSSH."+type+"~~~~0.0.1.0'; try {"+
-      "Add-WindowsCapability -Online -Name $name | Out-Host;"+
-      "if ((Get-WindowsCapability -Online -Name $name).State -ne 'Installed') { exit 9 }; exit 0"+
-      "} catch { Write-Error $_; exit 8 }";
-    string encoded=Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
-    var psi=new ProcessStartInfo("powershell.exe","-NoLogo -NoProfile -NonInteractive -EncodedCommand "+encoded){UseShellExecute=true,Verb="runas"};
-    using(Process installer=Process.Start(psi)){
-     if(installer==null)throw new InvalidOperationException("Не удалось запустить установку");
-     Status("Устанавливается "+title+" из штатного источника Windows…");
-     await Task.Run(()=>installer.WaitForExit());
-     if(installer.ExitCode!=0){Status("Установка "+title+" завершилась с ошибкой (код "+installer.ExitCode+"). Проверь Windows Update/WSUS и источник компонентов.");return;}
-    }
-    sshVersion=null;
-    await RefreshSshHealthAsync(true);
-    if(sshHealth!=null&&!sshHealth.Ready)Status("Компонент установлен. "+sshHealth.Explanation+". Для запуска sshd нужна отдельная настройка администратора.");
-   }catch(Exception ex){Status("Не удалось установить "+title+": "+ex.Message);}
+  async Task<bool> InstallOpenSshAsync(SshComponent component){
+   if(sshHealthBusy)return false;
+   string name=component==SshComponent.Client?"OpenSSH Client":"OpenSSH Server";
+   if(MessageBox.Show("Установить "+name+" штатными средствами Windows?\n\n"+
+      "Может понадобиться Windows Update, доступ к источнику компонентов и подтверждение UAC. " +
+      "Connector не включает SSH Server, не открывает входящий порт 22 и не меняет чужие учётные записи.",
+      "Hermes Connector — компоненты SSH",MessageBoxButtons.YesNo,MessageBoxIcon.Question,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return false;
+   sshHealthBusy=true;
+   try{
+    Status("Подготовка "+name+"…");
+    int code=await OpenSshComponents.InstallAsync(component);
+    if(code!=0){Status("Установка "+name+" завершилась с ошибкой "+code+". Проверь Windows Update / WSUS.");return false;}
+    sshVersion=null;UpdateSshState();
+    Status(name+" установлен. Для SSH Server запуск службы и входящий TCP/22 не включены.");
+    return true;
+   }catch(System.ComponentModel.Win32Exception ex){Status("Запрос прав администратора отклонён или недоступен: "+ex.Message);return false;}
+   catch(Exception ex){Status("Ошибка установки "+name+": "+ex.Message);return false;}
+   finally{sshHealthBusy=false;UpdateSshState();}
+  }
+  async Task<bool> EnsureOpenSshClientAsync(){
+   if(File.Exists(Ssh))return true;
+   Status("OpenSSH Client не найден. Коннектор предложит установку.");
+   if(!await InstallOpenSshAsync(SshComponent.Client))return false;
+   return File.Exists(Ssh);
   }
   Uri EnrollmentEndpoint {get{return GatewayEndpoints.Stored(enrollmentApi,host.Text.Trim());}}
   void UpdateGatewayMenu(){
@@ -393,7 +491,7 @@ namespace HermesBridge {
   }
   async Task StartOrEnrollAsync(){
    if(running||enrolling||revoking||revocationPending)return;
-   if(!File.Exists(Ssh)){Status("Нужен штатный OpenSSH Client для защищённого туннеля.");return;}
+   if(!await EnsureOpenSshClientAsync())return;
    if(!EnsureKey())return;
    if(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known)&&File.Exists(Path.Combine(root,"approval-ticket"))){
     try{
@@ -481,7 +579,7 @@ namespace HermesBridge {
    if(running)return;
    // Do not require or contact Windows OpenSSH Server. Execution stays
    // in the user logon token of THIS process.
-   if(!File.Exists(Ssh)){Status("Не установлен OpenSSH Client для защищённого канала.");return;}
+   if(!await EnsureOpenSshClientAsync())return;
    if(String.IsNullOrWhiteSpace(host.Text)||String.IsNullOrWhiteSpace(slot.Text)||!File.Exists(Known)){
     if(EnsureKey()){
      MessageBox.Show("Этот компьютер ещё не зарегистрирован в Hermes Gate.\n\nКлюч устройства создан локально. Нажми «Скопировать ключ» в разделе регистрации и передай только публичный ключ оператору. До подтверждения сервером удалённый доступ не открывается.","Регистрация Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Information);
@@ -490,14 +588,16 @@ namespace HermesBridge {
     return;
    }
    if(!Valid(true))return;
-   if(!File.Exists(Ssh)){Error("OpenSSH Client отсутствует. Установи компонент Windows OpenSSH Client.");return;}
+   if(!File.Exists(Ssh)){Error("OpenSSH Client не найден. Нажми установку SSH Client в окне коннектора.");return;}
    if(!File.Exists(Known)){Error("Нет проверенного known_hosts. Его выдаёт оператор после регистрации устройства.");return;}
    if(!EnsureKey())return;
    SaveSettings();
    try{
-    if(userAgent==null)userAgent=new UserSessionAgent(TicketStore.Read(Path.Combine(root,"approval-ticket")));
+    if(userAgent==null)userAgent=new UserSessionAgent(TicketStore.Read(Path.Combine(root,"approval-ticket")),message=>{
+     try{if(IsHandleCreated&&!IsDisposed)BeginInvoke(new Action(()=>LogAction(message)));}catch(ObjectDisposedException){}
+    });
    }catch(Exception ex){Status("Не удалось запустить агент текущего пользователя: "+ex.Message);return;}
-   deadline=autoDisconnect.Checked?DateTime.UtcNow.AddMinutes((double)ttl.Value):DateTime.MaxValue;running=true;retryAt=DateTime.UtcNow.AddSeconds(10);Launch();
+   sessionStarted=DateTime.UtcNow;UpdateDeadline();running=true;retryAt=DateTime.UtcNow.AddSeconds(10);Launch();
   }
   void Launch(){
    if(!running||DateTime.UtcNow>=deadline)return;
@@ -568,10 +668,12 @@ namespace HermesBridge {
   async Task ExitWithRevokeAsync(){
    if(quitting||revoking)return;
    if(!await EnsureRevokedAsync()){
-    MessageBox.Show("Gate не подтвердил отзыв доступа. Приложение останется открытым для повторной попытки.","Отключение не завершено",MessageBoxButtons.OK,MessageBoxIcon.Warning);
-    return;
+    if(MessageBox.Show("Локальный туннель остановлен, но Gate не подтвердил отзыв.\n\n"+
+       "Можно закрыть программу локально, сохранив старую заявку и ключ для повторного отзыва. " +
+       "Это НЕ означает прекращения серверных разрешений.\n\nЗакрыть локально?",
+       "Ожидается отзыв МОСТ",MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return;
    }
-   quitting=true;Close();
+   StopBridge();quitting=true;Close();
   }
   async Task DisconnectAsync(){
    // Stop the transport immediately, then revoke this session on Gate before allowing a new registration.
