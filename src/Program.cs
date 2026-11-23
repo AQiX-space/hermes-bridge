@@ -12,7 +12,23 @@ using System.Threading.Tasks;
 
 namespace HermesBridge {
  static class App {
-  [STAThread] static void Main(string[] args){if(args.Length>0 && args[0]=="--probe"){var a=new string[args.Length-1];Array.Copy(args,1,a,0,a.Length);Environment.ExitCode=TunnelProbe.Run(a);return;}Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);Application.Run(new BridgeForm(args.Length>0&&args[0]=="--resident"));}
+  [STAThread] static void Main(string[] args){
+   if(args.Length>0 && args[0]=="--probe"){
+    var a=new string[args.Length-1];Array.Copy(args,1,a,0,a.Length);
+    Environment.ExitCode=TunnelProbe.Run(a);return;
+   }
+   string sid;
+   using(var identity=WindowsIdentity.GetCurrent())sid=identity.User.Value;
+   using(var single=new SingleInstanceGate(sid)){
+    bool resident=args.Length>0&&args[0]=="--resident";
+    if(!single.Acquired){
+     if(!resident)MessageBox.Show("Hermes Connector уже запущен для этой учётной записи. Проверь значок в области уведомлений Windows.","Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Information);
+     return;
+    }
+    Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
+    Application.Run(new BridgeForm(resident));
+   }
+  }
  }
  sealed class BridgeForm : Form {
   readonly bool launchResident;

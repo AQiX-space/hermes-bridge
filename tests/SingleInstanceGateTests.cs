@@ -1,0 +1,22 @@
+using System;
+using HermesBridge;
+class SingleInstanceGateTests {
+ static int Main(){
+  try{
+   string identity="TEST-"+Guid.NewGuid().ToString("N");
+   using(var first=new SingleInstanceGate(identity)){
+    if(!first.Acquired)throw new Exception("First instance should acquire lock");
+    using(var second=new SingleInstanceGate(identity)){
+     if(second.Acquired)throw new Exception("Second instance unexpectedly acquired same identity lock");
+    }
+    using(var differentUser=new SingleInstanceGate(identity+"-other")){
+     if(!differentUser.Acquired)throw new Exception("Different Windows identity is blocked");
+    }
+   }
+   using(var afterExit=new SingleInstanceGate(identity)){
+    if(!afterExit.Acquired)throw new Exception("Lock not released on exit");
+   }
+   Console.WriteLine("PASS: one process per Windows profile; independent users; lock released on exit");return 0;
+  }catch(Exception ex){Console.Error.WriteLine(ex);return 1;}
+ }
+}
