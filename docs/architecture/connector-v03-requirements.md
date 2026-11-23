@@ -76,7 +76,13 @@ client requested it; operator must pass `--ttl-seconds 0` explicitly.
 5. GR2 production upgrade for lease negotiation, operator helper and safe
    revocation of active tunnel. No production deployment performed under this
    branch; use backup/rollback and explicit owner approval.
-6. Signed release with Authenticode, Windows and cross-platform UI E2E,
+6. **Real high-availability across independent Gate failures for resident**:
+   the client currently re-establishes its approved Gate tunnel, but cannot
+   automatically move a live grant to the other broker. Full HA requires
+   independently approved, revocable registrations on GR1 and GR2 with a
+   defined conflict/replay/identity policy and operator location awareness.
+   The existing GR1->GR2 chooser applies only when opening a new enrollment.
+7. Signed release with Authenticode, Windows and cross-platform UI E2E,
    real account isolation tests, full failover and revoke, long-run reconnect
    tests including sleep/wake, reboot, closed session and disabled network.
 
