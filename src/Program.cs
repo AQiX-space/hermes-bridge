@@ -629,14 +629,14 @@ namespace HermesBridge {
      if(!isReady&&failure==null)return;
      try{if(IsHandleCreated&&!IsDisposed)BeginInvoke(new Action(()=>{
       if(!running||tunnel!=process)return;
-      if(isReady){forwardConfirmed=true;Status("Туннель открыт к агенту пользователя "+(userAgent==null?"неизвестно":userAgent.UserName)+". Авторизованное исполнение проверяется отдельно.");}
+      if(isReady){forwardConfirmed=true;reconnect.Connected();Status("Туннель открыт к агенту пользователя "+(userAgent==null?"неизвестно":userAgent.UserName)+". Авторизованное исполнение проверяется отдельно.");}
       if(failure!=null){lastTunnelFailure=failure;Status(failure);}
      }));}catch(ObjectDisposedException){}
     };
     process.Start();tunnel=process;process.BeginErrorReadLine();Status("Ожидаем подтверждение канала от сервера…");
    }catch(Exception ex){Status("Ошибка подключения: "+ex.Message);}
   }
-  DateTime retryAt=DateTime.MinValue;
+  DateTime retryAt=DateTime.MinValue; readonly ReconnectPolicy reconnect=new ReconnectPolicy();
   async Task TickAsync(){
    if(!running)return;
    if(userAgent==null){StopBridge();Status("Агент пользователя не запущен — доступ закрыт.");return;}
@@ -664,7 +664,7 @@ namespace HermesBridge {
    if(tunnel!=null&&!tunnel.HasExited)return;
    if(tunnel!=null){forwardConfirmed=false;Status(lastTunnelFailure.Length>0?lastTunnelFailure+" Повторное подключение…":"SSH-канал прерван. Повторное подключение…");}
    if(DateTime.UtcNow<retryAt)return;
-   retryAt=DateTime.UtcNow.AddSeconds(10);Launch();
+   retryAt=DateTime.UtcNow.Add(reconnect.FailedDelay());Launch();
   }
   async Task<bool> EnsureRevokedAsync(){
    if(running||enrolling||revocationPending||File.Exists(Path.Combine(root,"approval-ticket"))){
