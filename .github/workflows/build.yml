@@ -196,6 +196,13 @@ jobs:
       - name: Enrollment regression tests
         shell: pwsh
         run: python server/test_enroll.py
+      - name: Preserve private Connector 0.3 development build for target acceptance
+        if: github.ref == 'refs/heads/feat/connector-persistent-20261123'
+        uses: actions/upload-artifact@v4
+        with:
+          name: HermesConnector-0.3.0-dev-Windows-unsigned
+          path: HermesBridge.exe
+          retention-days: 7
       - name: Windows Defender scan of unsigned GR preview (fail closed)
         if: github.ref == 'refs/heads/feature/gr-gateway-failover'
         shell: pwsh
