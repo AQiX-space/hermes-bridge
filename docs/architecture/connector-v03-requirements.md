@@ -54,9 +54,19 @@ client requested it; operator must pass `--ttl-seconds 0` explicitly.
 | Support/resident preferences | `src/ConnectorPreferences.cs` | Persistence and idle timeout tests | CI verified |
 | Backoff and reconnect on broken tunnel | `src/ReconnectPolicy.cs` | Retry sequence tests | CI verified; live outage and restore pending |
 | Requested session lifetime on Gate | `server/enrollment/service.py` | SQLite migration, mode/lease tests | CI verified; GR2 deployment pending owner approval |
-| Expandable bounded activity journal | `src/Program.cs` | Windows compile | GUI inspection and accessibility testing pending |
+| Expandable persistent, sanitized 512-KiB activity journal | `src/Program.cs`, `src/ActivityJournal.cs` | Windows journal rollover, persistence and secret-redaction tests | CI verified; live GUI acceptance pending |
 | Never silently impersonate different user | `src/UserSessionAgent.cs` | Same-token command test | CI verified |
 | Offline/unavailable Gate local disable | `src/Program.cs` | Windows compile | Live click-through pending |
+| One running instance per Windows profile | `src/SingleInstanceGate.cs` | Windows named mutex tests | CI verified; manual simultaneous-launch check pending |
+
+## Verification checkpoint — 2026-11-23
+
+- `feat/connector-persistent-20261123` development build from commit `d99b390ffa34eed7641e91a83b7dba1858e5593e`.
+- Windows/Linux CI run `45255126246` **success**; includes persistent activity journal and one-instance tests.
+- PE32 .NET Framework Windows GUI produced as private GitHub Actions artifact `HermesConnector-0.3.0-dev-Windows-unsigned`, retention 7 days.
+- Exact build SHA256: `5398df136be80ef5665a850eb02b42fac44f116bb91ec860ca7eb8aed7cdb660`.
+- That SHA256 was verified on AlexHUB and Windows Defender returned `found no threats`, exit 0, not `skipped`. The temporary test file was deleted. This does not constitute the product being installed or accepted on the operator's interactive desktop.
+- No changes made to the live broker/Gate on LV1, DNS, VPN, installed Windows Connector or stable GitHub release. The branch remains an unsigned development build.
 
 ## Not yet delivered
 
