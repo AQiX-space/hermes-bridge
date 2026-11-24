@@ -132,6 +132,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\ActivityJournalTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Simulate OpenSSH Server installation without changing Windows capabilities
+        shell: pwsh
+        run: |
+          $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:exe /out:DumpOpenSshScript.exe /reference:System.ServiceProcess.dll src\OpenSshComponents.cs src\SshServerHealth.cs tests\DumpOpenSshScript.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\DumpOpenSshScript.exe | Out-File -FilePath generated-openssh-install.ps1 -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\tests\OpenSshInstallMock.ps1 -ScriptFile generated-openssh-install.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Persistent and temporary mode plus native SSH feature tests
         shell: pwsh
         run: |
