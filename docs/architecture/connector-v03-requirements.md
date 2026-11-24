@@ -68,6 +68,14 @@ client requested it; operator must pass `--ttl-seconds 0` explicitly.
 - That SHA256 was verified on AlexHUB and Windows Defender returned `found no threats`, exit 0, not `skipped`. The temporary test file was deleted. This does not constitute the product being installed or accepted on the operator's interactive desktop.
 - No changes made to the live broker/Gate on LV1, DNS, VPN, installed Windows Connector or stable GitHub release. The branch remains an unsigned development build.
 
+## Verification checkpoint — 2026-11-24 (development only)
+
+- `feat/connector-persistent-20261123`: bounded SSH connect (`ConnectTimeout=10`, `ConnectionAttempts=1`), forward failures and keepalive (`ServerAliveInterval=30`, `ServerAliveCountMax=3`) share one implementation in main connection and diagnostic probe.
+- Windows OpenSSH option parsing (`ssh -G`) verified on AlexHUB; Windows CI for this change: `45333884706` PASS.
+- OpenSSH Server installer now warns that Windows may briefly enable an inbound firewall rule and disables **only a newly created** `OpenSSH-Server-In-TCP` rule; does not stop/modify previously existing `sshd`. Windows mocked install tests (no system modification): CI `45335491848` PASS.
+- Dev EXE from CI `45333884706` SHA256 `a843c8255de3dcb19dc2d2f9cc41c404f7eed29645a2bdd56a0ed7d92503dd1f` was checked on AlexHUB; Defender `found no threats` and exit 0; test copy removed. This is not installed in the user session or signed.
+- Live GR2 (LV1) `doctor.ok=true` but uses old schema without `requested_mode` or `requested_lease_seconds`. Synthetic regression on the observed 12-column schema PASS (`server/enrollment/test_live_schema_migration.py`). Production deployment and live resident authorization are NOT approved; runbook `ops/LV1-RESIDENT-LEASE-DEPLOY.md` prepared only.
+
 ## Not yet delivered
 
 1. **Linux and macOS installers/applications** with matching GUI/tray,

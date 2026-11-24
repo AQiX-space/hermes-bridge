@@ -210,6 +210,7 @@ jobs:
           python server/enrollment/test_http.py
           python server/enrollment/test_request_diagnostics.py
           python server/enrollment/test_resident_mode.py
+          python server/enrollment/test_live_schema_migration.py
           python server/enrollment/test_multi_device.py
       - name: Enrollment regression tests
         shell: pwsh
