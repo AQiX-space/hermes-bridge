@@ -28,7 +28,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install 'keyring>=25,<26' 'pyinstaller>=6,<7' 'secretstorage>=3.3,<4'
-      - name: Unit tests: OS identity, HMAC, broker, keyring, lock
+      - name: "Unit tests: OS identity, HMAC, broker, keyring, lock"
         run: python -m unittest discover -s tests/unix -p 'test_*.py' -v
       - name: Linux/macOS CLI check
         run: |
