@@ -375,6 +375,7 @@ def main(argv=None):
     commands.add_parser('doctor')
     gui = commands.add_parser('gui', help='show graphical support / tray interface')
     gui.add_argument('--resident', action='store_true', help='start resident mode in tray after login')
+    gui.add_argument('--smoke-ui', action='store_true', help=argparse.SUPPRESS)
     commands.add_parser('revoke', help='explicitly revoke the prior broker authorization')
     ssh = commands.add_parser('setup-ssh')
     ssh.add_argument('component', choices=('client', 'server'))
@@ -394,7 +395,7 @@ def main(argv=None):
             from gui import main as gui_main
         except ImportError as exc:
             raise RuntimeError('Desktop GUI toolkit not available on this system: '+str(exc)) from exc
-        return gui_main(args.resident)
+        return gui_main(args.resident, smoke=args.smoke_ui)
     if args.command == 'setup-ssh':
         return setup_ssh(args.component, args.install)
     if args.command == 'revoke':

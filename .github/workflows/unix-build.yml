@@ -53,6 +53,11 @@ jobs:
           ./dist/HermesConnector --version
           ./dist/HermesConnector doctor
           shasum -a 256 dist/HermesConnector
+      - name: Smoke-test actual Linux GUI on ephemeral Xvfb desktop
+        if: runner.os == 'Linux'
+        run: |
+          command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
+          timeout 25s xvfb-run -a ./dist/HermesConnector gui --smoke-ui
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}

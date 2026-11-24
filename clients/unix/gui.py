@@ -334,8 +334,12 @@ class ConnectorGUI:
         self.root.mainloop()
 
 
-def main(resident=False):
+def main(resident=False, smoke=False):
     app = ConnectorGUI(resident)
-    if resident:
+    if smoke:
+        # CI-only graphical smoke: never enrolls, opens external SSH or
+        # modifies startup. Exit through the same path used by tray Quit.
+        app.root.after(1200, app.exit)
+    elif resident:
         app.root.after(1500, app.start)
     app.run()
