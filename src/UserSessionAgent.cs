@@ -12,6 +12,25 @@ using System.Collections.Generic;
 using System.Web.Script.Serialization;
 
 namespace HermesBridge {
+ // A resident agent may run for years; the replay cache must not permanently
+ // lock out all future commands after 10,000 requests. The timestamp check
+ // remains independent. Cache time uses monotonic Stopwatch seconds.
+ public sealed class ReplayNonceCache {
+  readonly Dictionary<string,long> seen=new Dictionary<string,long>(StringComparer.Ordinal);
+  long lastSweep=0;
+  public bool TryUse(string nonce,long monotonicSeconds){
+   if(String.IsNullOrWhiteSpace(nonce))return false;
+   if(monotonicSeconds-lastSweep>=30||monotonicSeconds<lastSweep){
+    var expired=new List<string>();
+    foreach(var item in seen)if(item.Value<monotonicSeconds-180)expired.Add(item.Key);
+    foreach(string key in expired)seen.Remove(key);
+    lastSweep=monotonicSeconds;
+   }
+   if(seen.Count>=10000||seen.ContainsKey(nonce))return false;
+   seen.Add(nonce,monotonicSeconds);return true;
+  }
+  public void Clear(){seen.Clear();}
+ }
  // Runs as the SAME Windows logon token that launched Connector; does not log on
  // to Windows over sshd, create a service, request elevation or change ACLs.
  // Wire protocol: one newline-terminated JSON request on a LOOPBACK TCP socket.
@@ -24,7 +43,7 @@ namespace HermesBridge {
   readonly Action<string> audit;
   readonly byte[] key;
   readonly object gate=new object();
-  readonly HashSet<string> used=new HashSet<string>(StringComparer.Ordinal);
+  readonly ReplayNonceCache used=new ReplayNonceCache();
   readonly JavaScriptSerializer json=new JavaScriptSerializer(){MaxJsonLength=128*1024};
   volatile bool closed=false;
   Process active;
@@ -50,7 +69,7 @@ namespace HermesBridge {
    byte[] expected;
    using(var hmac=new HMACSHA256(key))expected=hmac.ComputeHash(Encoding.UTF8.GetBytes(r.ts+"\n"+r.nonce+"\n"+r.script));
    if(!Equal(provided,expected))return false;
-   lock(gate){if(closed||used.Count>=10000||!used.Add(r.nonce))return false;return true;}
+   lock(gate){return !closed&&used.TryUse(r.nonce,Stopwatch.GetTimestamp()/Stopwatch.Frequency);}
   }
   void AcceptLoop(){
    while(!closed){
@@ -123,7 +142,7 @@ namespace HermesBridge {
    lock(gate){if(closed)return;closed=true;
     if(active!=null)try{if(!active.HasExited)active.Kill();}catch{}
    }
-   listener.Stop();Array.Clear(key,0,key.Length);
+   listener.Stop();used.Clear();Array.Clear(key,0,key.Length);
   }
  }
 }

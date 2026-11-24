@@ -33,7 +33,8 @@ class UserSessionAgent:
         if not isinstance(ticket, str) or len(ticket) < 40:
             raise ValueError('missing approved broker ticket')
         self._key = hashlib.sha256(('Hermes user-agent HMAC v1\n' + ticket).encode()).digest()
-        self._used = set()
+        self._used = {}
+        self._last_prune = 0
         self._lock = threading.RLock()
         self._busy = False
         self._closed = False
@@ -62,9 +63,13 @@ class UserSessionAgent:
         if not hmac.compare_digest(supplied, digest):
             return False
         with self._lock:
+            now = int(time.time())
+            if now-self._last_prune >= 30:
+                self._used = {k: v for k, v in self._used.items() if v >= now-180}
+                self._last_prune = now
             if self._closed or len(self._used) >= 10000 or nonce in self._used:
                 return False
-            self._used.add(nonce)
+            self._used[nonce] = now
         return True
 
     def _execute(self, script):
@@ -82,24 +87,50 @@ class UserSessionAgent:
                 return {'ok': False, 'error': 'Unable to start command'}
         self._events('Authorized command started as '+self.user)
         try:
+            out, err = bytearray(), bytearray()
+            def drain(pipe, sink):
+                try:
+                    while True:
+                        chunk = pipe.read(4096)
+                        if not chunk:
+                            break
+                        if len(sink) < MAX_OUTPUT:
+                            sink.extend(chunk[:MAX_OUTPUT-len(sink)])
+                except OSError:
+                    pass
+            output_reader = threading.Thread(target=drain, args=(process.stdout, out), daemon=True)
+            error_reader = threading.Thread(target=drain, args=(process.stderr, err), daemon=True)
+            output_reader.start()
+            error_reader.start()
+            timed_out = False
             try:
-                out, err = process.communicate(timeout=30)
+                process.wait(timeout=30)
             except subprocess.TimeoutExpired:
+                timed_out = True
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-                process.communicate()
+                process.wait(timeout=3)
+            output_reader.join(timeout=3)
+            error_reader.join(timeout=3)
+            if timed_out:
                 return {'ok': False, 'user': self.user, 'exit_code': -1,
                         'error': 'Command timeout (30 seconds)'}
             if self._closed:
                 return {'ok': False, 'user': self.user, 'exit_code': -1, 'error': 'Agent stopped'}
             result = {'ok': process.returncode == 0, 'user': self.user,
-                      'exit_code': process.returncode, 'stdout': out[:MAX_OUTPUT].decode('utf-8', 'replace'),
-                      'stderr': err[:MAX_OUTPUT].decode('utf-8', 'replace')}
+                      'exit_code': process.returncode,
+                      'stdout': out.decode('utf-8', 'replace'),
+                      'stderr': err.decode('utf-8', 'replace')}
             self._events('Command completed with exit '+str(process.returncode))
             return result
         finally:
+            for stream in (process.stdout, process.stderr):
+                try:
+                    stream.close()
+                except OSError:
+                    pass
             with self._lock:
                 if self._active is process:
                     self._active = None

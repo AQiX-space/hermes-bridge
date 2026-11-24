@@ -28,6 +28,14 @@ class UserSessionAgentTests {
  static void Check(bool condition,string label){if(!condition)throw new Exception(label);}
  static int Main(){
   try{
+   var cache=new ReplayNonceCache();
+   Check(cache.TryUse("N1",1000),"Initial nonce refused");
+   Check(!cache.TryUse("N1",1001),"Nonce replay accepted within 180 seconds");
+   Check(cache.TryUse("N1",1200),"Expired nonce was not evicted");
+   for(int i=0;i<9999;i++)Check(cache.TryUse("N"+i,1201),"Replay cache rejected early");
+   Check(!cache.TryUse("OVERFLOW",1201),"Replay cache accepted too many requests simultaneously");
+   Check(cache.TryUse("AFTER_SWEEP",1400),"Resident cache did not recover from request ceiling");
+   Console.WriteLine("PASS: long-lived nonce cache evicts expired requests and rejects replay");
    string ticket=Convert.ToBase64String(Guid.NewGuid().ToByteArray())+Convert.ToBase64String(Guid.NewGuid().ToByteArray());
    using(var agent=new UserSessionAgent(ticket)){
     string user=WindowsIdentity.GetCurrent().Name;

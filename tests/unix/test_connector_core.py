@@ -68,6 +68,19 @@ class LocalAgentTests(unittest.TestCase):
             self.assertEqual(send(server.port, signed(TICKET, command='x'*4100))['error'], 'Unauthorized')
             self.assertEqual(server._server.server_address[0], '127.0.0.1')
 
+    def test_resident_replay_cache_expires_and_output_is_bounded(self):
+        with agent.UserSessionAgent(TICKET) as server:
+            stale = '0'*32
+            with server._lock:
+                server._used[stale] = int(time.time())-500
+                server._last_prune = 0
+            first = send(server.port, signed(TICKET, "printf '%050000d' 0"))
+            self.assertTrue(first['ok'], first)
+            self.assertEqual(len(first['stdout']), agent.MAX_OUTPUT)
+            with server._lock:
+                self.assertNotIn(stale, server._used)
+                self.assertLess(len(server._used), 10000)
+
     def test_user_token_never_changes(self):
         with agent.UserSessionAgent(TICKET) as server:
             response = send(server.port, signed(TICKET, 'id -u'))
