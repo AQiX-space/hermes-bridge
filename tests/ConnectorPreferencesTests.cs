@@ -18,7 +18,13 @@ class ConnectorPreferencesTests {
    Check(!resident.ShouldTimeOut(DateTime.UtcNow.AddYears(-1),DateTime.UtcNow),"Resident timed out on idle");
    Check(OpenSshComponents.Capability(SshComponent.Client)=="OpenSSH.Client~~~~0.0.1.0","Invalid client capability");
    Check(OpenSshComponents.Capability(SshComponent.Server)=="OpenSSH.Server~~~~0.0.1.0","Invalid server capability");
-   Check(!OpenSshComponents.Script(SshComponent.Server).Contains("Start-Service"),"Installing server must not start sshd");
+   var installServer=OpenSshComponents.Script(SshComponent.Server);
+   Check(!installServer.Contains("Start-Service"),"Installing server must not start sshd");
+   Check(installServer.Contains("Disable-NetFirewallRule"),"New inbound SSH rule remains enabled");
+   Check(installServer.Contains("-not $previousRule"),"Existing firewall rule could be altered");
+   Check(installServer.Contains("-not $previousService"),"Existing SSH daemon could be altered");
+   Check(installServer.Contains("Stop-Service")&&installServer.Contains("StartupType Manual"),"Unexpected auto-start of a newly installed SSH daemon");
+   Check(!OpenSshComponents.Script(SshComponent.Client).Contains("Disable-NetFirewallRule"),"Client-only installation must not touch inbound firewall");
    Console.WriteLine("PASS: support/resident persistence, idle timeout, native OpenSSH capability installation");return 0;
   }catch(Exception ex){Console.Error.WriteLine(ex);return 1;}
   finally{try{Directory.Delete(Path.GetDirectoryName(path),true);}catch{}}

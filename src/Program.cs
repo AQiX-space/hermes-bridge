@@ -423,7 +423,9 @@ namespace HermesBridge {
    string name=component==SshComponent.Client?"OpenSSH Client":"OpenSSH Server";
    if(MessageBox.Show("Установить "+name+" штатными средствами Windows?\n\n"+
       "Может понадобиться Windows Update, доступ к источнику компонентов и подтверждение UAC. " +
-      "Connector не включает SSH Server, не открывает входящий порт 22 и не меняет чужие учётные записи.",
+      "Внимание: Windows может при установке SSH Server создать правило входящего TCP/22. " +
+      "Коннектор отключит только новое правило и не запустит службу, но во время установки возможно краткое изменение правил. " +
+      "Уже работающие SSH-службы и настройки не изменяем.",
       "Hermes Connector — компоненты SSH",MessageBoxButtons.YesNo,MessageBoxIcon.Question,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return false;
    sshHealthBusy=true;
    try{
@@ -431,7 +433,7 @@ namespace HermesBridge {
     int code=await OpenSshComponents.InstallAsync(component);
     if(code!=0){Status("Установка "+name+" завершилась с ошибкой "+code+". Проверь Windows Update / WSUS.");return false;}
     sshVersion=null;UpdateSshState();
-    Status(name+" установлен. Для SSH Server запуск службы и входящий TCP/22 не включены.");
+    Status(name+" установлен. Если SSH Server был новым, его входящее правило отключено, служба не запускается автоматически.");
     return true;
    }catch(System.ComponentModel.Win32Exception ex){Status("Запрос прав администратора отклонён или недоступен: "+ex.Message);return false;}
    catch(Exception ex){Status("Ошибка установки "+name+": "+ex.Message);return false;}
@@ -650,7 +652,7 @@ namespace HermesBridge {
    if(!running||DateTime.UtcNow>=deadline)return;
    int serverPort=int.Parse(port.Text),remote=int.Parse(slot.Text);
    if(userAgent==null){StopBridge();Status("Агент текущего пользователя остановлен, канал закрыт.");return;}
-   string args="-v -N -T -p "+serverPort+" -R 127.0.0.1:"+remote+":127.0.0.1:"+userAgent.Port+" -i \""+Key+"\" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\""+Known+"\" -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 hermes-bridge@"+host.Text.Trim();
+   string args="-v -N -T -p "+serverPort+" -R 127.0.0.1:"+remote+":127.0.0.1:"+userAgent.Port+" -i \""+Key+"\" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\""+Known+"\" "+SshTransportOptions.Flags+" hermes-bridge@"+host.Text.Trim();
    try{
     if(tunnel!=null){try{tunnel.Dispose();}catch{}tunnel=null;}
     forwardConfirmed=false;lastTunnelFailure="";

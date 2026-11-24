@@ -14,7 +14,7 @@ namespace HermesBridge {
    if(!File.Exists(key)||!File.Exists(known)){Console.Error.WriteLine("key or known hosts absent");return 3;}
    if(host.Length>200||!System.Text.RegularExpressions.Regex.IsMatch(host,@"^[a-zA-Z0-9.-]+$")){Console.Error.WriteLine("invalid host");return 3;}
    string ssh=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"OpenSSH","ssh.exe");
-   string args="-vv -N -T -p "+port+" -R 127.0.0.1:"+reverse+":127.0.0.1:"+userAgentPort+" -i \""+key+"\" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\""+known+"\" -o ExitOnForwardFailure=yes -o ConnectTimeout=7 -o ServerAliveInterval=30 hermes-bridge@"+host;
+   string args="-vv -N -T -p "+port+" -R 127.0.0.1:"+reverse+":127.0.0.1:"+userAgentPort+" -i \""+key+"\" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=\""+known+"\" "+SshTransportOptions.Flags+" hermes-bridge@"+host;
    using(var p=new Process()){
     p.StartInfo=new ProcessStartInfo(ssh,args){UseShellExecute=false,CreateNoWindow=true,RedirectStandardError=true};
     var log=new StringBuilder();bool established=false;
