@@ -3,7 +3,9 @@
 **Development only.** Linux and macOS command-line implementation of the
 Hermes per-user broker client. This is **not** a replacement for the Windows
 GUI or a completed, signed multi-OS release. Source and binaries are built in
-GitHub Actions (`unix-build.yml`) and require interactive account approval.
+GitHub Actions (`unix-build.yml`) for Linux x64/arm64 and macOS x64/arm64;
+usage requires a separate operator-approved enrollment. The development
+packages are unsigned and not yet a public release.
 
 ## Architecture
 

@@ -15,9 +15,13 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            artifact: HermesConnector-Linux-dev-unsigned
+            artifact: HermesConnector-Linux-x64-dev-unsigned
+          - os: ubuntu-24.04-arm
+            artifact: HermesConnector-Linux-arm64-dev-unsigned
           - os: macos-15
-            artifact: HermesConnector-macOS-dev-unsigned
+            artifact: HermesConnector-macOS-arm64-dev-unsigned
+          - os: macos-15-intel
+            artifact: HermesConnector-macOS-x64-dev-unsigned
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +37,7 @@ jobs:
       - name: Linux/macOS CLI check
         run: |
           python clients/unix/main.py --help
+          python clients/unix/main.py --version
           python clients/unix/main.py doctor
           python clients/unix/main.py setup-ssh client
           python clients/unix/main.py setup-ssh server
@@ -41,6 +46,7 @@ jobs:
           python -m PyInstaller --onefile --noconfirm --clean --name HermesConnector \
             --collect-submodules keyring.backends clients/unix/main.py
           ./dist/HermesConnector --help
+          ./dist/HermesConnector --version
           ./dist/HermesConnector doctor
           shasum -a 256 dist/HermesConnector
       - uses: actions/upload-artifact@v4

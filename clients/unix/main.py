@@ -370,6 +370,7 @@ def autostart(action, install_service=False):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Hermes Connector Linux/macOS — user-context bridge')
+    parser.add_argument('--version', action='version', version='Hermes Connector 0.3.0-dev')
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('doctor')
     commands.add_parser('revoke', help='explicitly revoke the prior broker authorization')
