@@ -171,7 +171,7 @@ class LocalStateTests(unittest.TestCase):
             installed=pathlib.Path(command[0])
             self.assertEqual(installed.read_bytes(), original.read_bytes())
             self.assertEqual(installed.stat().st_mode & 0o077, 0)
-            self.assertEqual(command[1:], ['connect', '--mode', 'resident'])
+            self.assertEqual(command[1:], ['gui', '--resident'])
 
     def test_no_automatic_privileged_ssh_install(self):
         with mock.patch.object(main.platform, 'system', return_value='Linux'), \
@@ -181,6 +181,19 @@ class LocalStateTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 main.setup_ssh('client', install=True)
             run.assert_not_called()
+
+    def test_running_instance_rejects_remote_revocation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            secure = MemoryKeyring()
+            store = state.State(folder, secrets=secure)
+            store.store_ticket(TICKET)
+            store.save({'broker': broker.BROKERS[1], 'mode': 'resident'})
+            with mock.patch.object(main, 'State', return_value=store), \
+                    mock.patch.object(main, 'Broker') as remote:
+                with main.single_instance(store.root):
+                    with self.assertRaises(RuntimeError):
+                        main.main(['revoke'])
+                remote.assert_not_called()
 
     def test_broker_selection(self):
         with mock.patch.object(main, 'probe_broker', side_effect=lambda x: x == broker.BROKERS[1]):

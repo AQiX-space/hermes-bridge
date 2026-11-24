@@ -26,12 +26,20 @@ packages are unsigned and not yet a public release.
   headless system without an unlocked keyring, the client refuses to start.
 - Linux `systemd --user` and macOS per-user `LaunchAgents` autostart are
   opt-in and do not alter system-level services. Installation is for the NEXT
-  login; after logout/pre-login availability is not proven. A signed desktop
-  GUI/tray is a separate missing acceptance requirement.
+  login; after logout/pre-login availability is not proven.
+- Development GUI (`gui`, `gui --resident`) uses the same CLI executable as a
+  child. A collapsible on-disk-redacted journal, support/resident choice,
+  install/status controls and `pystray` status-bar icon are included.
+  The system tray may be unavailable on some Wayland/X11 desktop environments;
+  in that case the GUI does not silently hide or become uncloseable.
+  Real display/tray interaction and signing/notarization remain acceptance
+  blockers; headless CI tests cover helpers and packaging only.
 
 ## Commands
 
 ```sh
+HermesConnector gui                    # окна поддержки, трей, журнал
+HermesConnector gui --resident         # постоянный режим в трее
 HermesConnector doctor
 HermesConnector setup-ssh client
 HermesConnector setup-ssh client --install
@@ -56,8 +64,10 @@ verification before release.
 
 ## Limitations / outstanding acceptance
 
-1. No graphical tray interface or self-update for Unix yet. The signed release
-   and notarized macOS binary are also missing.
+1. Unix GUI/tray is present in the development source but not yet physically
+   accepted on real Linux/macOS desktops, including Wayland, menu-bar controls
+   and installer UAC/polkit flow. Self-update and signed/notarized binaries
+   remain incomplete.
 2. No production resident broker on GR2; until installed with owner approval,
    `requested_mode=resident` and unlimited approval are not supported there.
 3. On Unix the native system keyring may require an interactive login. Do not

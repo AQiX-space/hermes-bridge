@@ -17,7 +17,10 @@ import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]/'clients'/'unix'))
 from agent import UserSessionAgent
 from test_connector_core import signed
-import asyncssh
+try:
+    import asyncssh
+except ImportError:
+    asyncssh = None  # Standalone local development may lack CI-only mock Gate
 
 
 def available_port():
@@ -26,7 +29,7 @@ def available_port():
         return sock.getsockname()[1]
 
 
-class ReverseGate(asyncssh.SSHServer):
+class ReverseGate(asyncssh.SSHServer if asyncssh is not None else object):
     def __init__(self, port):
         self.port = port
     def begin_auth(self, username):
@@ -35,6 +38,7 @@ class ReverseGate(asyncssh.SSHServer):
         return listen_host == '127.0.0.1' and listen_port == self.port
 
 
+@unittest.skipUnless(asyncssh is not None, "CI-only AsyncSSH dependency unavailable")
 class ReverseSSHIntegration(unittest.IsolatedAsyncioTestCase):
     async def test_real_reverse_tunnel_and_signed_command(self):
         ticket = 'R'*43

@@ -305,8 +305,8 @@ def _command_for_autostart():
             finally:
                 if temp.exists():
                     temp.unlink()
-        return [str(installed), 'connect', '--mode', 'resident']
-    return [str(executable), str(pathlib.Path(__file__).resolve()), 'connect', '--mode', 'resident']
+        return [str(installed), 'gui', '--resident']
+    return [str(executable), str(pathlib.Path(__file__).resolve()), 'gui', '--resident']
 
 
 def _systemd_quote(value):
@@ -344,8 +344,8 @@ def autostart(action, install_service=False):
     if path.exists():
         raise RuntimeError('existing autostart unit is not overwritten')
     state = State()
-    if not state.load_ticket():
-        raise RuntimeError('resident autostart requires a previously approved, keychain-stored ticket')
+    if not state.load_ticket() or state.load().get('mode') != 'resident':
+        raise RuntimeError('resident autostart requires a previously approved resident-mode ticket')
     path.parent.mkdir(parents=True, exist_ok=True)
     args = _command_for_autostart()
     if platform.system() == 'Linux':
@@ -373,6 +373,8 @@ def main(argv=None):
     parser.add_argument('--version', action='version', version='Hermes Connector 0.3.0-dev')
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('doctor')
+    gui = commands.add_parser('gui', help='show graphical support / tray interface')
+    gui.add_argument('--resident', action='store_true', help='start resident mode in tray after login')
     commands.add_parser('revoke', help='explicitly revoke the prior broker authorization')
     ssh = commands.add_parser('setup-ssh')
     ssh.add_argument('component', choices=('client', 'server'))
@@ -387,22 +389,31 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.command == 'doctor':
         return doctor()
+    if args.command == 'gui':
+        try:
+            from gui import main as gui_main
+        except ImportError as exc:
+            raise RuntimeError('Desktop GUI toolkit not available on this system: '+str(exc)) from exc
+        return gui_main(args.resident)
     if args.command == 'setup-ssh':
         return setup_ssh(args.component, args.install)
     if args.command == 'revoke':
         state = State()
-        ticket = state.load_ticket()
-        if not ticket:
-            print('No saved authorization to revoke')
-            return
-        saved = state.load()
-        if saved.get('broker') not in BROKERS:
-            raise RuntimeError('cannot safely identify old broker for revocation')
-        if Broker(saved['broker']).revoke(ticket):
-            state.clear_ticket()
-            print('Broker confirmed revoked, ticket removed from OS keyring')
-        else:
-            raise RuntimeError('broker did not confirm revocation; ticket preserved')
+        with single_instance(state.root):
+            # Refuse to modify/revoke a grant while the local executor is still
+            # active. Stop it from the tray/terminal first, then revoke.
+            ticket = state.load_ticket()
+            if not ticket:
+                print('No saved authorization to revoke')
+                return
+            saved = state.load()
+            if saved.get('broker') not in BROKERS:
+                raise RuntimeError('cannot safely identify old broker for revocation')
+            if Broker(saved['broker']).revoke(ticket):
+                state.clear_ticket()
+                print('Broker confirmed revoked, ticket removed from OS keyring')
+            else:
+                raise RuntimeError('broker did not confirm revocation; ticket preserved')
         return
     if args.command == 'autostart':
         return autostart(args.action, args.confirm)
