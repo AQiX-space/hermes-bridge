@@ -50,6 +50,16 @@ jobs:
           name: HermesRecoveryInstaller-0.2.9
           path: HermesRecoveryInstaller.exe
           retention-days: 7
+      - name: Beta update version and EXE metadata regression tests
+        shell: pwsh
+        run: |
+          $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:exe /out:UpdaterVersionTests.exe /reference:System.Web.Extensions.dll src\VersionInfo.cs src\GitHubUpdater.cs tests\UpdaterVersionTests.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\UpdaterVersionTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exeVersion=(Get-Item HermesBridge.exe).VersionInfo.ProductVersion
+          if ($exeVersion -cne '0.3.0-beta.0') { throw "Wrong packaged EXE ProductVersion: $exeVersion" }
       - name: Cryptographic update regression tests
         shell: pwsh
         run: |

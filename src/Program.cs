@@ -49,11 +49,11 @@ namespace HermesBridge {
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(bool startedAsResident=false){
    launchResident=startedAsResident;
-   Text="Hermes Connector 0.3.0-dev"; Width=495;Height=578;MinimumSize=new Size(495,578);MaximumSize=new Size(900,578);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.3.0-beta.0"; Width=495;Height=578;MinimumSize=new Size(495,578);MaximumSize=new Size(900,578);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));journal=new ActivityJournal(Path.Combine(root,"activity.log"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",19,FontStyle.Bold),Left=30,Top=24,Width=388,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="0.3.0-dev · сеанс пользователя",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
+   subtitle=new Label(){Text="0.3.0-beta.0 · сеанс пользователя",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=28,Top=167,Width=403,Height=130,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=12;state.Width=250;state.Height=44;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=54;connectionInfo.Width=368;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
