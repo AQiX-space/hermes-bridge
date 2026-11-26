@@ -135,7 +135,9 @@ jobs:
           for($i=0;$i -lt 20 -and !(Test-Path $marker);$i++){ Start-Sleep -Milliseconds 200 }
           if (!(Test-Path $marker)) { throw 'Previously working Connector not restarted after rollback' }
           Write-Output 'PASS: failed auto-update restored and restarted prior client'
-          Start-Sleep -Seconds 3
+          # The rollback test EXE intentionally remains alive briefly. Wait
+          # for its 3.2 second lifetime before deleting the Windows-locked PE.
+          Start-Sleep -Seconds 6
           Remove-Item -Recurse -Force $root
           exit 0
       - name: SSH event parsing regression tests
