@@ -22,3 +22,9 @@
 
 - Windows CI: `AutoUpdatePolicyTests`, `AutoReleaseSelectionTests`, тест реальной замены/rollback и запуска нового процесса с `--resume-update`, сборка helper из исходников.
 - Обязательная end-to-end приёмка: получить подписанное/одобренное обновление на устройстве под Alex, проверить старый и новый PID, тот же Alex SID, право admin unchanged, старый билет GR2, восстановленный live `ssh -R`, закрытие туннеля пользователем и rollback при ошибке. Проверить работу при отсутствии интернета и после перезагрузки.
+
+## Release numbering and discovery correction (2026-11-27)
+
+- Owner requires ordinary **0.3.1**, **0.3.2** version numbers; no per-fix beta labels. Increment patch for the next generally available release. Existing beta release drafts were invisible to the public GitHub releases API, so beta.1 misleadingly reported "up to date".
+- Publish an actual non-draft `v0.3.1` with canonical binary and GitHub asset digest after CI and Defender verification. The existing beta.1 can discover it through its manual Check/Update button and perform the one-time self-update without the user downloading a file. The old beta.1 *cannot* acquire unattended installation retroactively; version 0.3.1 implements it on future releases.
+- Verify via the **same unauthenticated GitHub Releases endpoint that the installed beta.1 uses**, from ALEXHUB; checking the authorized `gh` CLI alone is inadequate because it sees drafts.

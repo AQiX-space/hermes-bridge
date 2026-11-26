@@ -67,7 +67,7 @@ jobs:
           .\UpdaterVersionTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $exeVersion=(Get-Item HermesBridge.exe).VersionInfo.ProductVersion
-          if ($exeVersion -cne '0.3.0-beta.2') { throw "Wrong packaged EXE ProductVersion: $exeVersion" }
+          if ($exeVersion -cne '0.3.1') { throw "Wrong packaged EXE ProductVersion: $exeVersion" }
       - name: Cryptographic update regression tests
         shell: pwsh
         run: |

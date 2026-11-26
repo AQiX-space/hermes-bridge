@@ -9,7 +9,7 @@ class AutoReleaseSelectionTests {
  }
  static int Main(){
   string good="sha256:"+new string('a',64);
-  var valid=Release("0.3.0-beta.3",false,good,null);
+  var valid=Release("0.3.2",false,good,null);
   var draft=Release("9.0.0",true,good,null);
   var missing=Release("7.0.0",false,"",null);
   var forged=Release("8.0.0",false,good,"https://evil.example/bridge.exe");
