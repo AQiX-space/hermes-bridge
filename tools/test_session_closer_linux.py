@@ -1,5 +1,6 @@
 """Linux-only live TCP tests; proves unrelated process is not terminated."""
 import os
+import errno
 import pathlib
 import socket
 import sys
@@ -22,6 +23,10 @@ try:
         close_reverse_session(port)
     except RuntimeError as error:
         assert 'cannot safely close' in str(error),str(error)
+    except OSError as error:
+        # Isolated CI has no production AF_UNIX systemd socket. The broker
+        # MUST fail closed, never assume that the unrelated listener vanished.
+        assert error.errno in (errno.ENOENT, errno.ECONNREFUSED, errno.EACCES, errno.EPERM),error
     else:
         raise AssertionError('an unrelated TCP listener was treated as revoked')
     assert close_reverse_session(port-1),'unused port should be safely closed'
