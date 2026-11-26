@@ -17,21 +17,35 @@ namespace HermesBridge {
     var a=new string[args.Length-1];Array.Copy(args,1,a,0,a.Length);
     Environment.ExitCode=TunnelProbe.Run(a);return;
    }
-   string sid;
-   using(var identity=WindowsIdentity.GetCurrent())sid=identity.User.Value;
-   using(var single=new SingleInstanceGate(sid)){
-    bool resident=args.Length>0&&args[0]=="--resident";
+   bool resident=false,resume=false;
+   string expectedSid=null;
+   for(int i=0;i<args.Length;i++){
+    if(args[i]=="--resident")resident=true;
+    else if(args[i]=="--resume")resume=true;
+    else if(args[i]=="--elevated-from-sid"&&i+1<args.Length)expectedSid=args[++i];
+    else{MessageBox.Show("Неверный параметр запуска коннектора.","Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Warning);return;}
+   }
+   string sid=ElevationSupport.CurrentSid();
+   if(expectedSid!=null&&(!ElevationSupport.ValidateSameUser(expectedSid,sid)||!ElevationSupport.IsElevated())){
+    MessageBox.Show("Windows UAC запустил приложение под другой учётной записью либо без повышения прав. " +
+      "Текущая регистрация МОСТ не переносится к другому пользователю.",
+      "Hermes Connector — безопасность",MessageBoxButtons.OK,MessageBoxIcon.Warning);return;
+   }
+   if(resume&&expectedSid==null){
+    MessageBox.Show("Автоматическое восстановление разрешено только при подтверждённом UAC-переходе.","Hermes Connector");return;
+   }
+   using(var single=new SingleInstanceGate(sid,expectedSid!=null)){
     if(!single.Acquired){
      if(!resident)MessageBox.Show("Hermes Connector уже запущен для этой учётной записи. Проверь значок в области уведомлений Windows.","Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Information);
      return;
     }
     Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
-    Application.Run(new BridgeForm(resident));
+    Application.Run(new BridgeForm(resident,resume));
    }
   }
  }
  sealed class BridgeForm : Form {
-  readonly bool launchResident;
+  readonly bool launchResident,resumeAfterElevation;
   ConnectorPreferences preferences=new ConnectorPreferences(); ActivityJournal journal;
   bool loadingPrefs=false;DateTime sessionStarted=DateTime.MinValue;
   string PrefsPath {get{return Path.Combine(root,"ui-preferences.ini");}}
@@ -45,15 +59,15 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), shortcut=new Button(); LinkLabel updates=new LinkLabel(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), sshServerInstall=new LinkLabel(), emergencyLink=new LinkLabel(); Button logToggle=new Button(); Label logTitle=new Label(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu; ToolStripMenuItem modeMenu; ToolStripMenuItem disableStartupMenu; ToolStripMenuItem codeMenu; string announcedCode="";
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); LinkLabel elevateLink=new LinkLabel(); ToolStripMenuItem elevateMenu; bool elevating=false; Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), sshServerInstall=new LinkLabel(), emergencyLink=new LinkLabel(); Button logToggle=new Button(); Label logTitle=new Label(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu; ToolStripMenuItem modeMenu; ToolStripMenuItem disableStartupMenu; ToolStripMenuItem codeMenu; string announcedCode="";
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
-  public BridgeForm(bool startedAsResident=false){
-   launchResident=startedAsResident;
-   Text="Hermes Connector 0.3.0-beta.0"; Width=495;Height=578;MinimumSize=new Size(495,578);MaximumSize=new Size(900,578);StartPosition=FormStartPosition.CenterScreen;
+  public BridgeForm(bool startedAsResident=false,bool resumeAfterUac=false){
+   launchResident=startedAsResident;resumeAfterElevation=resumeAfterUac;
+   Text="Hermes Connector 0.3.0-beta.1"; Width=495;Height=578;MinimumSize=new Size(495,578);MaximumSize=new Size(900,578);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));journal=new ActivityJournal(Path.Combine(root,"activity.log"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",19,FontStyle.Bold),Left=30,Top=24,Width=388,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="0.3.0-beta.0 · сеанс пользователя",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
+   subtitle=new Label(){Text="0.3.0-beta.1 · сеанс пользователя",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=28,Top=167,Width=403,Height=130,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=12;state.Width=250;state.Height=44;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=54;connectionInfo.Width=368;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
@@ -88,7 +102,10 @@ namespace HermesBridge {
    start.Click+=async (s,e)=>await StartOrEnrollAsync();stop.Click+=async (s,e)=>await DisconnectAsync();
    setup.Visible=false;advanced.Visible=false;
    stop.BackColor=Color.FromArgb(176,56,56);stop.FlatAppearance.BorderSize=0;
-   sshInfo.SetBounds(31,105,287,57);sshInfo.ForeColor=muted;Controls.Add(sshInfo);
+   sshInfo.SetBounds(31,103,285,45);sshInfo.ForeColor=muted;Controls.Add(sshInfo);
+   elevateLink.Text="Перезапустить от администратора";
+   elevateLink.SetBounds(31,147,250,20);elevateLink.LinkColor=Color.FromArgb(176,56,56);
+   elevateLink.Click+=(sender,e)=>RestartAsAdministrator();Controls.Add(elevateLink);
    installSsh.Text="Установить сервер";installSsh.SetBounds(303,123,128,25);installSsh.TextAlign=ContentAlignment.MiddleRight;installSsh.LinkColor=blue;Controls.Add(installSsh);
    sshCheck.Text="Проверить";sshCheck.SetBounds(303,123,128,25);sshCheck.TextAlign=ContentAlignment.MiddleRight;sshCheck.LinkColor=blue;Controls.Add(sshCheck);
    sshCheck.Click+=(s,e)=>Status("Текущий пользователь: "+WindowsIdentity.GetCurrent().Name+". Подключение не требует Windows SSH Server.");
@@ -127,6 +144,9 @@ namespace HermesBridge {
    modeMenu.DropDownItems.Add("Временная поддержка",null,(sender,e)=>SwitchMode(ConnectorMode.Support));
    modeMenu.DropDownItems.Add("Постоянный агент",null,(sender,e)=>SwitchMode(ConnectorMode.Resident));
    menu.Items.Add(modeMenu);
+   elevateMenu=new ToolStripMenuItem("Перезапустить с правами администратора");
+   elevateMenu.Click+=(sender,e)=>RestartAsAdministrator();
+   menu.Items.Add(elevateMenu);
    disableStartupMenu=new ToolStripMenuItem("Отключить автозапуск");
    disableStartupMenu.Click+=(sender,e)=>DisableStartupLocally();
    menu.Items.Add(disableStartupMenu);
@@ -142,7 +162,11 @@ namespace HermesBridge {
    updateTimer.Tick+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
    updateTimer.Start();
    Shown+=async (s,e)=>{
-    if(preferences.Mode==ConnectorMode.Resident&&WindowsStartup.Enabled()){Hide();if(!running&&!enrolling)await StartOrEnrollAsync();}
+    if(preferences.Mode==ConnectorMode.Resident&&(WindowsStartup.Enabled()||launchResident)){
+     Hide();if(!running&&!enrolling)await StartOrEnrollAsync();
+    }else if(resumeAfterElevation&&!running&&!enrolling){
+     await StartOrEnrollAsync();
+    }
     await CheckAndInstallUpdateAsync(true);
    };
    heartbeat.Interval=2000;heartbeat.Tick+=async (s,e)=>{if(tickBusy)return;tickBusy=true;try{await TickAsync();}finally{tickBusy=false;}};heartbeat.Start();
@@ -309,14 +333,73 @@ namespace HermesBridge {
    installSsh.Visible=support&&!File.Exists(Ssh);sshServerInstall.Visible=support;
    sshCheck.Visible=support;updates.Visible=support;emergencyLink.Visible=support;
    logToggle.Visible=support;
+   elevateLink.Visible=support&&!ElevationSupport.IsElevated();
+   if(elevateMenu!=null)elevateMenu.Visible=!ElevationSupport.IsElevated();
    logTitle.Visible=support&&preferences.LogExpanded;
    actionLog.Visible=support&&preferences.LogExpanded;
    copyLog.Visible=support&&preferences.LogExpanded;
+  }
+  bool RestartAsAdministrator(){
+   if(elevating||quitting)return false;
+   if(ElevationSupport.IsElevated()){
+    Status("Коннектор уже запущен с правами администратора.");return false;
+   }
+   if(updating||revoking||revocationPending){
+    Status("Сначала заверши обновление или отзыв прежней регистрации МОСТ.");return false;
+   }
+   TokenElevationKind kind;
+   try{kind=ElevationSupport.CurrentTokenKind();}
+   catch(Exception ex){Error("Не удалось определить тип Windows-токена: "+ex.Message);return false;}
+   if(!ElevationSupport.CanElevateSameUser(false,kind)){
+    MessageBox.Show("У текущей учётной записи нет доступного повышенного токена. " +
+      "Windows может потребовать пароль ДРУГОГО администратора. Это будет другой пользователь, " +
+      "поэтому регистрация МОСТ и пользовательский сеанс Alex не будут перенесены. " +
+      "Диагностика в обычных правах остаётся доступной.",
+      "Требуются права текущего пользователя",MessageBoxButtons.OK,MessageBoxIcon.Information);
+    return false;
+   }
+   bool active=running||enrolling;
+   string question="Windows откроет UAC для этой же учётной записи. " +
+     "Коннектор после подтверждения запустится с правами администратора, " +
+     "не меняя владельца регистрации МОСТ.\n\n"+
+     (active?"Текущий SSH-туннель кратко прервётся и будет восстановлен с прежним разрешением. " +
+       "Разрешение на GR2 НЕ отзывается и не требуется новый код МОСТ.\n\n":"")+
+     "При отмене UAC существующий процесс продолжит работу. " +
+     "Автозапуск после следующего входа в Windows останется с ОБЫЧНЫМИ правами.\n\nПродолжить?";
+   if(MessageBox.Show(question,"Повышение прав Hermes Connector",MessageBoxButtons.YesNo,
+      MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return false;
+   elevating=true;
+   try{
+    ElevationSupport.StartElevated(System.Reflection.Assembly.GetExecutingAssembly().Location,
+      ElevationSupport.CurrentSid(),preferences.Mode==ConnectorMode.Resident);
+    // Only AFTER Windows accepts UAC, release the existing per-user mutex.
+    // Do NOT call DisconnectAsync/EnsureRevokedAsync: the ticket stays valid.
+    LogAction("Подтверждён переход к повышенному экземпляру. Старое разрешение МОСТ сохранено.");
+    StopBridge();quitting=true;Close();return true;
+   }catch(System.ComponentModel.Win32Exception ex){
+    Status(ex.NativeErrorCode==1223?"Запрос UAC отменён. Текущий туннель не прерван.":
+      "Windows не разрешила повышение прав: "+ex.Message);
+    return false;
+   }catch(Exception ex){Error("Перезапуск с правами администратора не выполнен: "+ex.Message);return false;}
+   finally{elevating=false;}
   }
   async void SwitchMode(ConnectorMode next){
    if(next==preferences.Mode)return;
    if(running||enrolling||revoking||revocationPending||File.Exists(Path.Combine(root,"approval-ticket"))){
     Status("Сначала заверши текущее разрешение МОСТ; изменение режима требует нового подтверждения на сервере.");return;
+   }
+   bool requestAdminForCurrentSession=false;
+   if(next==ConnectorMode.Resident&&!ElevationSupport.IsElevated()){
+    DialogResult option=MessageBox.Show("Постоянный агент может работать с обычными правами. " +
+      "Для расширенных административных действий можно дополнительно повысить права ТОЛЬКО текущего сеанса.\n\n"+
+      "Да — запросить Windows UAC после включения автозапуска.\n"+
+      "Нет — оставить обычные права (рекомендуется для постоянной работы).\n"+
+      "Отмена — не менять режим.\n\n"+
+      "После входа в Windows автозапуск будет без повышения прав.",
+      "Права постоянного агента",MessageBoxButtons.YesNoCancel,MessageBoxIcon.Question,
+      MessageBoxDefaultButton.Button2);
+    if(option==DialogResult.Cancel)return;
+    requestAdminForCurrentSession=option==DialogResult.Yes;
    }
    if(next==ConnectorMode.Resident){
     string message="Включить постоянный агент для текущего пользователя Windows?\n\n"+
@@ -335,6 +418,7 @@ namespace HermesBridge {
    UpdateModeMenu();UpdateDeadline();SavePreferences();
    Status(next==ConnectorMode.Resident?"Постоянный режим включён: автозапуск при входе Windows.":"Временная поддержка: автозапуск выключен.");
    if(next==ConnectorMode.Resident){
+    if(requestAdminForCurrentSession&&RestartAsAdministrator())return;
     Hide();
     if(!running&&!enrolling)await StartOrEnrollAsync();
    }
@@ -387,7 +471,10 @@ namespace HermesBridge {
    }
    using(var id=WindowsIdentity.GetCurrent()){
     var principal=new WindowsPrincipal(id);
-    sshInfo.Text="Исполнение: "+id.Name+(principal.IsInRole(WindowsBuiltInRole.Administrator)?" [администратор]":"")+"\nSSH: "+(installed?sshVersion:"клиент не установлен");
+    bool isAdmin=principal.IsInRole(WindowsBuiltInRole.Administrator);
+    sshInfo.Text="Исполнение: "+id.Name+(isAdmin?" [администратор]":" [обычные права]")+"\nSSH: "+(installed?sshVersion:"клиент не установлен");
+    elevateLink.Visible=preferences.Mode==ConnectorMode.Support&&!isAdmin;
+    if(elevateMenu!=null)elevateMenu.Visible=!isAdmin;
    }
    installSsh.Visible=preferences.Mode==ConnectorMode.Support&&!installed&&SshServerHealth.SupportsWindowsCapability();
    installSsh.Text="Установить SSH Client";

@@ -86,6 +86,12 @@ client requested it; operator must pass `--ttl-seconds 0` explicitly.
 - Final Windows approval still requires the real user **Alex** to launch this preview, confirm enrollment and an operator HMAC command with `whoami` under Alex, then verify idle, stop, revoke, start after login and rollback. Technical SSH user `aqixssh` is **not** a substitute for this test.
 - This branch and the production Gate are not a signed stable release. Do not publish a public prerelease to all existing 0.2.9 updater clients before controlled end-user acceptance.
 
+## UAC current-user support — 2026-11-27 development
+
+- UAC only by explicit click; normal diagnostics and resident mode stay unprivileged by default. UI shows identity/elevation. Same-SID warm tunnel handoff reuses the already-approved Gate ticket; cancellation should leave the old connection active.
+- New test suite: `tests/ElevationSupportTests.cs`; version `0.3.0-beta.1`. Operational and acceptance details: `docs/architecture/uac-elevation-mode.md`.
+- **Not yet accepted on live interactive ALEXHUB**; do not confuse CI with UAC GUI verification.
+
 ## Not yet delivered
 
 1. **Linux/macOS end-user acceptance:** four unsigned PyInstaller packages (Linux

@@ -14,10 +14,16 @@ namespace HermesBridge {
    foreach(char ch in identity)if(!Char.IsLetterOrDigit(ch) && ch!='-')throw new ArgumentException("Invalid Windows user SID");
    return @"Global\HermesConnector-"+identity;
   }
-  public SingleInstanceGate(string identity){
+  public SingleInstanceGate(string identity,bool waitForHandoff=false){
    bool created=false;
    mutex=new Mutex(true,NameForIdentity(identity),out created);
    Acquired=created;
+   if(!Acquired&&waitForHandoff){
+    // The old instance closes its loopback executor and SSH client before
+    // releasing the per-SID mutex. Only a user-consented UAC restart waits.
+    try{Acquired=mutex.WaitOne(TimeSpan.FromSeconds(15));}
+    catch(AbandonedMutexException){Acquired=true;}
+   }
   }
   public void Dispose(){
    if(mutex==null)return;

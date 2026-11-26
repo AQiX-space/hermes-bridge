@@ -15,6 +15,21 @@ class SingleInstanceGateTests {
      if(!differentUser.Acquired)throw new Exception("Different Windows identity is blocked");
     }
    }
+   bool acquiredByHandoff=false;
+   using(var previous=new SingleInstanceGate(identity)){
+    if(!previous.Acquired)throw new Exception("Cannot reserve lock for UAC handoff");
+    var thread=new System.Threading.Thread(()=>{
+     using(var raised=new SingleInstanceGate(identity,true)){
+      acquiredByHandoff=raised.Acquired;
+     }
+    });
+    thread.Start();
+    System.Threading.Thread.Sleep(120);
+    if(acquiredByHandoff)throw new Exception("New instance acquired lock before prior instance closed");
+    previous.Dispose();
+    if(!thread.Join(2200))throw new Exception("UAC instance did not recover mutex after previous process closed");
+   }
+   if(!acquiredByHandoff)throw new Exception("UAC handoff failed to take over after close");
    using(var afterExit=new SingleInstanceGate(identity)){
     if(!afterExit.Acquired)throw new Exception("Lock not released on exit");
    }
