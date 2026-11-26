@@ -17,11 +17,12 @@ namespace HermesBridge {
     var a=new string[args.Length-1];Array.Copy(args,1,a,0,a.Length);
     Environment.ExitCode=TunnelProbe.Run(a);return;
    }
-   bool resident=false,resume=false;
+   bool resident=false,resume=false,resumeUpdate=false;
    string expectedSid=null;
    for(int i=0;i<args.Length;i++){
     if(args[i]=="--resident")resident=true;
     else if(args[i]=="--resume")resume=true;
+    else if(args[i]=="--resume-update")resumeUpdate=true;
     else if(args[i]=="--elevated-from-sid"&&i+1<args.Length)expectedSid=args[++i];
     else{MessageBox.Show("Неверный параметр запуска коннектора.","Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Warning);return;}
    }
@@ -34,18 +35,18 @@ namespace HermesBridge {
    if(resume&&expectedSid==null){
     MessageBox.Show("Автоматическое восстановление разрешено только при подтверждённом UAC-переходе.","Hermes Connector");return;
    }
-   using(var single=new SingleInstanceGate(sid,expectedSid!=null)){
+   using(var single=new SingleInstanceGate(sid,expectedSid!=null||resumeUpdate)){
     if(!single.Acquired){
      if(!resident)MessageBox.Show("Hermes Connector уже запущен для этой учётной записи. Проверь значок в области уведомлений Windows.","Hermes Connector",MessageBoxButtons.OK,MessageBoxIcon.Information);
      return;
     }
     Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
-    Application.Run(new BridgeForm(resident,resume));
+    Application.Run(new BridgeForm(resident,resume||resumeUpdate,resumeUpdate));
    }
   }
  }
  sealed class BridgeForm : Form {
-  readonly bool launchResident,resumeAfterElevation;
+  readonly bool launchResident,resumeAfterElevation,resumeAfterAutoUpdate;
   ConnectorPreferences preferences=new ConnectorPreferences(); ActivityJournal journal; ResidentPinStore residentPin;
   bool loadingPrefs=false;DateTime sessionStarted=DateTime.MinValue;
   string PrefsPath {get{return Path.Combine(root,"ui-preferences.ini");}}
@@ -61,8 +62,8 @@ namespace HermesBridge {
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), shortcut=new Button(); LinkLabel updates=new LinkLabel(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
   TextBox actionLog=new TextBox(); Label sshInfo=new Label(); LinkLabel elevateLink=new LinkLabel(); ToolStripMenuItem elevateMenu; bool elevating=false; Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), sshServerInstall=new LinkLabel(), emergencyLink=new LinkLabel(); Button logToggle=new Button(); Label logTitle=new Label(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu; ToolStripMenuItem modeMenu; ToolStripMenuItem disableStartupMenu; ToolStripMenuItem codeMenu; ToolStripMenuItem pinMenu; string announcedCode="";
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
-  public BridgeForm(bool startedAsResident=false,bool resumeAfterUac=false){
-   launchResident=startedAsResident;resumeAfterElevation=resumeAfterUac;
+  public BridgeForm(bool startedAsResident=false,bool resumeAfterUac=false,bool resumeAfterUpdater=false){
+   launchResident=startedAsResident;resumeAfterElevation=resumeAfterUac;resumeAfterAutoUpdate=resumeAfterUpdater;
    Text="Hermes Connector 0.3.0-beta.2"; Width=495;Height=578;MinimumSize=new Size(495,578);MaximumSize=new Size(900,578);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
    Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));journal=new ActivityJournal(Path.Combine(root,"activity.log"));residentPin=new ResidentPinStore(Path.Combine(root,"resident-pin.bin"));
@@ -164,6 +165,10 @@ namespace HermesBridge {
    updateTimer.Tick+=async (s,e)=>await CheckAndInstallUpdateAsync(true);
    updateTimer.Start();
    Shown+=async (s,e)=>{
+    if(resumeAfterAutoUpdate&&preferences.Mode==ConnectorMode.Resident&&WindowsStartup.Enabled()){
+     try{WindowsStartup.Enable(System.Reflection.Assembly.GetExecutingAssembly().Location);}
+     catch(Exception ex){Status("Не удалось обновить автозапуск после установки: "+ex.Message);}
+    }
     if(preferences.Mode==ConnectorMode.Resident&&(WindowsStartup.Enabled()||launchResident)){
      Hide();if(!running&&!enrolling)await StartOrEnrollAsync();
     }else if(resumeAfterElevation&&!running&&!enrolling){
@@ -175,33 +180,40 @@ namespace HermesBridge {
    LoadSettings();RestorePreferences();actionLog.Text=journal.Tail();EnsureDesktopShortcut();FormClosing+=(s,e)=>{if(!quitting){e.Cancel=true;Hide();}else{StopBridge();tray.Visible=false;tray.Dispose();if(connectedTrayIcon!=null)connectedTrayIcon.Dispose();}};
   }
   async System.Threading.Tasks.Task CheckAndInstallUpdateAsync(bool automatic){
-   if(updating||quitting)return;
-   if(running||enrolling||revoking){if(!automatic)MessageBox.Show("Сначала останови локальный туннель или текущую регистрацию.","Обновление");return;}
-   updating=true;updates.Enabled=false;updates.Text="Проверка…";
-   try {
+   // A live support/resident tunnel is NOT a reason to block updates.
+   // The updater pauses it only after the new binary has passed SHA256 checks.
+   if(!AutoUpdatePolicy.CanUpdate(quitting,updating,enrolling,revoking,revocationPending)){
+    if(!automatic)Status("Обновление будет проверено после завершения регистрации или отзыва МОСТ.");
+    return;
+   }
+   updating=true;updates.Enabled=false;updates.Text="Проверка обновления…";
+   try{
     GitHubUpdater.Release manifest=await GitHubUpdater.CheckAsync();
     updateAvailable=manifest!=null;
-    if(manifest==null){if(!automatic)Status("Установлена актуальная версия Connector.");return;}
-    if(automatic){Status("Доступна версия "+manifest.tagName+". Нажми «Обновить».");return;}
-    if(running||quitting)return;
-    if(!automatic && MessageBox.Show("Доступна версия "+manifest.tagName+". Установить?","Гермес Мост",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;
-    updates.Text="Загрузка и проверка обновления…";
+    if(manifest==null){if(!automatic)Status("Версия Гермес Коннектора актуальна.");return;}
+    if(!automatic&&MessageBox.Show("Установить обновление "+manifest.tagName+
+      "? Текущий туннель кратко прервётся, после установки соединение восстановится автоматически.",
+      "Гермес Коннектор",MessageBoxButtons.YesNo,MessageBoxIcon.Question,
+      MessageBoxDefaultButton.Button1)!=DialogResult.Yes)return;
+    updates.Text="Загрузка и проверка…";
+    // Download never interrupts the approved session. Fail closed if digest
+    // is absent/mismatched, or the GitHub asset URL is not canonical HTTPS.
     string staged=await GitHubUpdater.StageAsync(manifest,Path.Combine(root,"updates"));
-    if(running||enrolling||revoking||quitting)return;
-    // Updating application bytes is not granting access. Preserve all old
-    // tickets, DPAPI secrets and keys; never mark an unreachable Gate revoked.
-    if(revocationPending||File.Exists(Path.Combine(root,"approval-ticket"))){
-     if(MessageBox.Show("Gate пока не подтвердил отзыв. Локальный SSH-туннель закрыт.\n\n"+
-        "Можно обновить только приложение, СОХРАНИВ старое разрешение и ключ для последующего отзыва. " +
-        "Никакое новое подключение не откроется автоматически.\n\nОбновить?",
-        "Безопасное обновление",MessageBoxButtons.YesNo,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return;
-    }
-    GitHubUpdater.Apply(manifest,staged);
-    quitting=true;Close();
+    if(!AutoUpdatePolicy.CanUpdate(quitting,false,enrolling,revoking,revocationPending))return;
+    bool reconnect=AutoUpdatePolicy.ResumeAfterSwap(running,preferences.Mode==ConnectorMode.Resident);
+    // Launch the rollback-capable helper first. After it starts we may pause
+    // only the LOCAL socket and ssh.exe, preserving Gate approval and DPAPI.
+    GitHubUpdater.Apply(manifest,staged,reconnect);
+    LogAction("Автообновление подготовлено: "+manifest.tagName+". Текущий билет МОСТ сохранён.");
+    StopBridge();quitting=true;Close();
    }catch(Exception ex){
-    if(!automatic)MessageBox.Show(""+ex.Message,"Гермес Мост",MessageBoxButtons.OK,MessageBoxIcon.Warning);
-    else updates.Text="Автообновление недоступно";
-   }finally{updating=false;updates.Enabled=true;if(!quitting)updates.Text=updateAvailable?"● Обновить":"Проверить";updates.LinkColor=updateAvailable?Color.FromArgb(36,133,78):blue;}
+    LogAction("Автообновление не применено: "+ex.GetType().Name+" "+ex.Message);
+    if(!automatic)MessageBox.Show("Не удалось обновить: "+ex.Message,"Гермес Коннектор",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+    else Status("Проверка обновления не удалась; работаю с прежней версией.");
+   }finally{
+    updating=false;updates.Enabled=true;
+    if(!quitting){updates.Text=updateAvailable?"Обновить":"Проверить";updates.LinkColor=updateAvailable?Color.FromArgb(36,133,78):blue;}
+   }
   }
   async Task UninstallConnectorAsync(){
    if(MessageBox.Show("Окончательно удалить Connector и его локальные ключи, настройки, обновления и ярлык?\n\nТуннель будет остановлен, серверное разрешение должно быть отозвано до удаления.","Удаление Hermes Connector",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes)return;

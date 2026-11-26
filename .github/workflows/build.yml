@@ -24,7 +24,7 @@ jobs:
           $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           & $csc /nologo /target:exe /optimize+ /out:HermesBridgeUpdater.exe updater\Program.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $csc /nologo /target:winexe /optimize+ /win32icon:assets\HermesConnector.ico /out:HermesBridge.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Security.dll /reference:System.ServiceProcess.dll /resource:HermesBridgeUpdater.exe,HermesBridgeUpdater.exe src\Program.cs src\ResidentPinDialog.cs src\ResidentPinStore.cs src\ElevationSupport.cs src\SshTransportOptions.cs src\SingleInstanceGate.cs src\ReconnectPolicy.cs src\ConnectorPreferences.cs src\ActivityJournal.cs src\OpenSshComponents.cs src\WindowsStartup.cs src\UserSessionAgent.cs src\EmergencyRecovery.cs src\TunnelProbe.cs src\SshEvents.cs src\EnrollmentClient.cs src\TicketStore.cs src\UpdateClient.cs src\GitHubUpdater.cs src\VersionInfo.cs src\SshServerHealth.cs
+          & $csc /nologo /target:winexe /optimize+ /win32icon:assets\HermesConnector.ico /out:HermesBridge.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Security.dll /reference:System.ServiceProcess.dll /resource:HermesBridgeUpdater.exe,HermesBridgeUpdater.exe src\Program.cs src\AutoUpdatePolicy.cs src\ResidentPinDialog.cs src\ResidentPinStore.cs src\ElevationSupport.cs src\SshTransportOptions.cs src\SingleInstanceGate.cs src\ReconnectPolicy.cs src\ConnectorPreferences.cs src\ActivityJournal.cs src\OpenSshComponents.cs src\WindowsStartup.cs src\UserSessionAgent.cs src\EmergencyRecovery.cs src\TunnelProbe.cs src\SshEvents.cs src\EnrollmentClient.cs src\TicketStore.cs src\UpdateClient.cs src\GitHubUpdater.cs src\VersionInfo.cs src\SshServerHealth.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-FileHash HermesBridge.exe -Algorithm SHA256 | Format-List
           $sig=Get-AuthenticodeSignature HermesBridge.exe
@@ -50,6 +50,14 @@ jobs:
           name: HermesRecoveryInstaller-0.2.9
           path: HermesRecoveryInstaller.exe
           retention-days: 7
+      - name: Reject untrusted and draft versions from automatic updater
+        shell: pwsh
+        run: |
+          $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:exe /out:AutoReleaseSelectionTests.exe /reference:System.Web.Extensions.dll src\VersionInfo.cs src\GitHubUpdater.cs tests\AutoReleaseSelectionTests.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\AutoReleaseSelectionTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Beta update version and EXE metadata regression tests
         shell: pwsh
         run: |
@@ -94,6 +102,28 @@ jobs:
           Write-Output 'PASS: failed launch restores previous version'
           Remove-Item -Recurse -Force $root
           exit 0 # expected rollback helper exit=10 must not become job exit
+      - name: Updater launches new Windows process with automatic tunnel resume
+        shell: pwsh
+        run: |
+          $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          $root=Join-Path $env:RUNNER_TEMP 'hermes-updater-resume'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          & $csc /nologo /target:exe /out:"$root\ResumeStub.exe" tests\UpdaterLaunchResumeStub.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $dst=Join-Path $root 'HermesConnector.exe'
+          $src=Join-Path $root 'new-release.exe'
+          Copy-Item "$root\ResumeStub.exe" $dst
+          Copy-Item "$root\ResumeStub.exe" $src
+          $hash=(Get-FileHash $src -Algorithm SHA256).Hash.ToLowerInvariant()
+          & .\HermesBridgeUpdater.exe '2147483646' $src $dst $hash 'launch-resume'
+          if ($LASTEXITCODE -ne 0) { throw "Updater resume failed: $LASTEXITCODE" }
+          $marker="$dst.argv"
+          for($i=0;$i -lt 20 -and !(Test-Path $marker);$i++){ Start-Sleep -Milliseconds 200 }
+          if (!(Test-Path $marker)) { throw 'New process did not launch' }
+          if ((Get-Content $marker -Raw).Trim() -cne '--resume-update') { throw 'New process did not receive resume-update flag' }
+          Write-Output 'PASS: rollback-capable updater launches replacement with resume-update flag'
+          Start-Sleep -Seconds 2
+          Remove-Item -Recurse -Force $root
       - name: SSH event parsing regression tests
         shell: pwsh
         run: |
@@ -167,6 +197,14 @@ jobs:
           & $csc /nologo /target:exe /out:WindowsStartupTests.exe src\WindowsStartup.cs tests\WindowsStartupTests.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\WindowsStartupTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Automatic update while connected and safe restart policy tests
+        shell: pwsh
+        run: |
+          $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:exe /out:AutoUpdatePolicyTests.exe src\AutoUpdatePolicy.cs tests\AutoUpdatePolicyTests.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\AutoUpdatePolicyTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: PIN access and persistent lockout regression tests
         shell: pwsh

@@ -46,19 +46,32 @@ namespace HermesBridge {
    string json;
    using(var client=Client())json=client.DownloadString(Api);
    var releases=new JavaScriptSerializer().Deserialize<Release[]>(json);
-   Version current=VersionOf(CurrentTag);Release best=null;Version bestVersion=current;
+   return SelectLatest(releases);
+  });}
+  public static Release SelectLatest(Release[] releases){
+   Version current=VersionOf(CurrentTag),bestVersion=current;Release best=null;
+   if(releases==null)return null;
    foreach(var r in releases){
-    if(r.draft)continue;
+    if(r==null||r.draft||r.assets==null)continue;
     Version v;try{v=VersionOf(r.tag_name);}catch{continue;}
-    if(v>bestVersion){best=r;bestVersion=v;}
+    if(v<=bestVersion)continue;
+    Asset exe=Array.Find(r.assets,a=>a!=null&&a.name=="HermesBridge.exe");
+    if(exe==null||!Regex.IsMatch(exe.digest??"",@"^sha256:[a-fA-F0-9]{64}$"))continue;
+    Uri uri;
+    if(!Uri.TryCreate(exe.browser_download_url,UriKind.Absolute,out uri)||
+       uri.Scheme!="https"||uri.Host!="github.com"||
+       uri.AbsolutePath!="/AQiX-space/hermes-bridge/releases/download/"+r.tag_name+"/HermesBridge.exe")continue;
+    best=r;bestVersion=v;
    }
    return best;
-  });}
+  }
   public static async Task<string> StageAsync(Release r,string dir){return await Task.Run(()=>{
    if(r==null||r.draft||!Regex.IsMatch(r.tag_name??"",@"^v\d+\.\d+\.\d+(?:-beta\.\d+)?$"))throw new InvalidDataException("Invalid release tag");
    var asset=Array.Find(r.assets,a=>a.name=="HermesBridge.exe");
    if(asset==null||!Regex.IsMatch(asset.digest??"","^sha256:[a-fA-F0-9]{64}$"))throw new InvalidDataException("Release SHA256 unavailable");
-   Uri u;if(!Uri.TryCreate(asset.browser_download_url,UriKind.Absolute,out u)||u.Scheme!="https"||u.Host!="github.com"||!u.AbsolutePath.StartsWith("/AQiX-space/hermes-bridge/releases/download/"))throw new InvalidDataException("Untrusted download URL");
+   Uri u;if(!Uri.TryCreate(asset.browser_download_url,UriKind.Absolute,out u)||u.Scheme!="https"||u.Host!="github.com"||
+      !u.AbsolutePath.StartsWith("/AQiX-space/hermes-bridge/releases/download/"+r.tag_name+"/",StringComparison.Ordinal)||
+      !u.AbsolutePath.EndsWith("/HermesBridge.exe",StringComparison.Ordinal))throw new InvalidDataException("Untrusted download URL");
    Directory.CreateDirectory(dir);
    string path=Path.Combine(dir,"HermesBridge.new.exe");
    using(var client=Client())client.DownloadFile(u,path);
@@ -69,7 +82,7 @@ namespace HermesBridge {
    }
    return path;
   });}
-  public static void Apply(Release r,string path){
+  public static void Apply(Release r,string path,bool resumeConnected){
    // Apply still uses existing rollback-capable helper; SHA-256 is pinned to GitHub's returned release digest.
    var asset=Array.Find(r.assets,a=>a.name=="HermesBridge.exe");
    string sha=asset.digest.Substring("sha256:".Length).ToLowerInvariant();
@@ -87,8 +100,15 @@ namespace HermesBridge {
    catch(IOException){canReplace=false;}
    finally{try{if(File.Exists(probe))File.Delete(probe);}catch{}}
    if(!canReplace){
-    destination=Path.Combine(home,"HermesConnector.exe");
-    if(!String.Equals(exe,destination,StringComparison.OrdinalIgnoreCase))File.Copy(exe,destination,true);
+    // Never overwrite the owner's older installed Connector while staging
+    // from a read-only preview directory. Use a managed per-user executable.
+    destination=Path.Combine(home,"HermesConnector-managed.exe");
+    if(!File.Exists(destination))File.Copy(exe,destination,false);
+    else{
+     var version=FileVersionInfo.GetVersionInfo(destination);
+     if(version.ProductName!="Hermes Connector"&&version.ProductName!="Гермес Мост")
+      throw new InvalidDataException("Managed update destination is not Hermes Connector");
+    }
    }
    using(var resource=Assembly.GetExecutingAssembly().GetManifestResourceStream("HermesBridgeUpdater.exe")){
     if(resource==null)throw new InvalidDataException("Missing embedded update helper");
@@ -97,7 +117,8 @@ namespace HermesBridge {
     if(File.Exists(helper))File.Delete(helper);
     File.Move(temporary,helper);
    }
-   string cmd=Process.GetCurrentProcess().Id+" \""+path+"\" \""+destination+"\" "+sha+" launch";
+   string cmd=Process.GetCurrentProcess().Id+" \""+path+"\" \""+destination+"\" "+sha+
+     (resumeConnected?" launch-resume":" launch");
    Process.Start(new ProcessStartInfo(helper,cmd){UseShellExecute=false,CreateNoWindow=true});
   }
  }

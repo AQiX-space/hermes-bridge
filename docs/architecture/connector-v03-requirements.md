@@ -92,6 +92,11 @@ client requested it; operator must pass `--ttl-seconds 0` explicitly.
 - New test suite: `tests/ElevationSupportTests.cs`; version `0.3.0-beta.1`. Operational and acceptance details: `docs/architecture/uac-elevation-mode.md`.
 - **Not yet accepted on live interactive ALEXHUB**; do not confuse CI with UAC GUI verification.
 
+## Self-update and resident PIN — 2026-11-27 development
+
+- Beta.2 fixes the resident tray lock: double-click/Open prompts PIN, correct PIN restores full support UI and disables resident autostart without dropping the current approved tunnel. PIN may be changed; defaults to `1111`, with DPAPI/PBKDF2 and persistent rate-limit. See `docs/architecture/tray-pin-access.md`. A local user can still disconnect/exit to withdraw remote-access consent.
+- Beta.2 stages and automatically applies valid GitHub Release updates during active sessions, then uses the verified rollback helper and reconnects with the old approved ticket. See `docs/architecture/automatic-updates.md`. This is NOT a signed public release or a proven live GUI rollout; current 0.3.0-beta.0 binaries cannot gain this feature without a trusted one-time upgrade.
+
 ## Not yet delivered
 
 1. **Linux/macOS end-user acceptance:** four unsigned PyInstaller packages (Linux

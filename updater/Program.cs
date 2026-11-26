@@ -12,6 +12,7 @@ namespace HermesBridgeUpdater {
   static int Main(string[] args) {
    // Separate helper: wait for parent; replace EXE without a shell; restore old binary on failure.
    if(args.Length!=5){Console.Error.WriteLine("args: PID source-new destination sha256 launch-flag");return 2;}
+   if(args[4]!="launch"&&args[4]!="launch-resume"&&args[4]!="test-no-launch")return 2;
    int pid; if(!int.TryParse(args[0],out pid))return 2;
    string staged=Path.GetFullPath(args[1]),dest=Path.GetFullPath(args[2]),expected=args[3].ToLowerInvariant();
    if(expected.Length!=64||!System.Text.RegularExpressions.Regex.IsMatch(expected,"^[0-9a-f]{64}$"))return 2;
@@ -28,8 +29,9 @@ namespace HermesBridgeUpdater {
     if(!String.Equals(BitConverter.ToString(Digest(tmp)).Replace("-","").ToLowerInvariant(),expected,StringComparison.Ordinal))throw new Exception("hash mismatch after copy");
     if(File.Exists(backup))File.Delete(backup);
     File.Replace(tmp,dest,backup);
-    if(args[4]=="launch") {
-     Process p=Process.Start(new ProcessStartInfo(dest){UseShellExecute=true});
+    if(args[4]=="launch"||args[4]=="launch-resume") {
+     Process p=Process.Start(new ProcessStartInfo(dest,args[4]=="launch-resume"?"--resume-update":""){
+      UseShellExecute=true});
      if(p==null)throw new Exception("launch failed");
      Thread.Sleep(2500);
      p.Refresh();
