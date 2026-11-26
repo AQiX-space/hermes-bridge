@@ -123,7 +123,21 @@ jobs:
           if ((Get-Content $marker -Raw).Trim() -cne '--resume-update') { throw 'New process did not receive resume-update flag' }
           Write-Output 'PASS: rollback-capable updater launches replacement with resume-update flag'
           Start-Sleep -Seconds 2
+          Remove-Item $marker -Force
+          # Deliberately corrupt a candidate whose SHA256 *matches*. The
+          # launcher must rollback and restart the previously working client.
+          $goodHash=(Get-FileHash $dst -Algorithm SHA256).Hash
+          [IO.File]::WriteAllText($src,'malformed-not-an-exe')
+          $badHash=(Get-FileHash $src -Algorithm SHA256).Hash.ToLowerInvariant()
+          & .\HermesBridgeUpdater.exe '2147483646' $src $dst $badHash 'launch-resume'
+          if ($LASTEXITCODE -ne 10) { throw "Expected rollback exit code 10, got $LASTEXITCODE" }
+          if ((Get-FileHash $dst -Algorithm SHA256).Hash -cne $goodHash) { throw 'Previous binary not restored' }
+          for($i=0;$i -lt 20 -and !(Test-Path $marker);$i++){ Start-Sleep -Milliseconds 200 }
+          if (!(Test-Path $marker)) { throw 'Previously working Connector not restarted after rollback' }
+          Write-Output 'PASS: failed auto-update restored and restarted prior client'
+          Start-Sleep -Seconds 3
           Remove-Item -Recurse -Force $root
+          exit 0
       - name: SSH event parsing regression tests
         shell: pwsh
         run: |

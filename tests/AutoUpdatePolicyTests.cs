@@ -11,7 +11,13 @@ class AutoUpdatePolicyTests {
   Check(AutoUpdatePolicy.ResumeAfterSwap(true,false),"Connected support not resumed");
   Check(AutoUpdatePolicy.ResumeAfterSwap(false,true),"Resident not resumed");
   Check(!AutoUpdatePolicy.ResumeAfterSwap(false,false),"Stopped support auto-connected unexpectedly");
-  Console.WriteLine("PASS: auto-download while connected, safe deferral and explicit resume policy");
+  string digest=new string('a',64),other=new string('b',64);
+  string record=digest+"|"+DateTime.UtcNow.AddMinutes(-2).Ticks;
+  Check(AutoUpdatePolicy.IsQuarantined(digest,record,DateTime.UtcNow),"Crashing digest was not quarantined");
+  Check(!AutoUpdatePolicy.IsQuarantined(other,record,DateTime.UtcNow),"New valid release incorrectly quarantined");
+  Check(!AutoUpdatePolicy.IsQuarantined(digest,record,DateTime.UtcNow.AddDays(2)),"Expired quarantine never clears");
+  Check(!AutoUpdatePolicy.IsQuarantined(digest,"malformed",DateTime.UtcNow),"Malformed quarantine accepted");
+  Console.WriteLine("PASS: auto-download while connected, safe deferral and one-day failed-digest quarantine");
   return 0;
  }
 }

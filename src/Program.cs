@@ -191,6 +191,14 @@ namespace HermesBridge {
     GitHubUpdater.Release manifest=await GitHubUpdater.CheckAsync();
     updateAvailable=manifest!=null;
     if(manifest==null){if(!automatic)Status("Версия Гермес Коннектора актуальна.");return;}
+    if(automatic){
+     string failedPath=Path.Combine(root,"last-failed-auto-update.txt");
+     var candidate=Array.Find(manifest.assets,a=>a!=null&&a.name=="HermesBridge.exe");
+     if(candidate!=null&&File.Exists(failedPath)&&
+        AutoUpdatePolicy.IsQuarantined(candidate.digest.Substring(7),File.ReadAllText(failedPath),DateTime.UtcNow)){
+      Status("Предыдущее автообновление этого выпуска не удалось; отложено на 24 часа.");return;
+     }
+    }
     if(!automatic&&MessageBox.Show("Установить обновление "+manifest.tagName+
       "? Текущий туннель кратко прервётся, после установки соединение восстановится автоматически.",
       "Гермес Коннектор",MessageBoxButtons.YesNo,MessageBoxIcon.Question,

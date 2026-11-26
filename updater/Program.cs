@@ -9,6 +9,7 @@ using System.Threading;
 namespace HermesBridgeUpdater {
  internal static class Program {
   static byte[] Digest(string path) {using(SHA256 h=SHA256.Create())using(FileStream f=File.OpenRead(path))return h.ComputeHash(f);}
+  static int ParseBeta(string value){int pos=value.LastIndexOf('.');int v;return pos>=0&&int.TryParse(value.Substring(pos+1),out v)?v:-1;}
   static int Main(string[] args) {
    // Separate helper: wait for parent; replace EXE without a shell; restore old binary on failure.
    if(args.Length!=5){Console.Error.WriteLine("args: PID source-new destination sha256 launch-flag");return 2;}
@@ -39,7 +40,23 @@ namespace HermesBridgeUpdater {
     }
     return 0;
    }catch(Exception ex){
-    try {if(File.Exists(backup))File.Copy(backup,dest,true);}catch{}
+    bool restored=false;
+    try{if(File.Exists(backup)){
+     File.Copy(backup,dest,true);
+     restored=true;
+    }}catch(Exception restoreError){Console.Error.WriteLine("Restore failed: "+restoreError.Message);}
+    if(restored&&args[4]=="launch-resume"){
+     try{
+      // Quarantine the exact crashing digest; do not loop on reinstall.
+      string home=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesBridge");
+      Directory.CreateDirectory(home);
+      File.WriteAllText(Path.Combine(home,"last-failed-auto-update.txt"),expected+"|"+DateTime.UtcNow.Ticks);
+      string previous=FileVersionInfo.GetVersionInfo(dest).ProductVersion??"";
+      bool canResume=previous.StartsWith("0.3.0-beta.")&&ParseBeta(previous)>=2;
+      Process.Start(new ProcessStartInfo(dest,canResume?"--resume-update":""){
+       UseShellExecute=true});
+     }catch(Exception restartError){Console.Error.WriteLine("Rollback restart failed: "+restartError.Message);}
+    }
     Console.Error.WriteLine(ex.Message);return 10;
    }finally {try {if(File.Exists(tmp))File.Delete(tmp);}catch{}}
   }
