@@ -1,3 +1,5 @@
+> **2026-11-26 update:** LV1 has `NoNewPrivileges=yes`. The sudo-based helper referenced below cannot work. Use `ops/LV1-ROOT-SOCKET-REVOKE-DEPLOY.md` instead. Owner approved the concrete LV1 broker + restricted revoke update; this document is retained as the older planning record.
+
 # GR2/LV1 — resident enrollment broker cutover (NOT YET APPROVED)
 
 Status: **PREPARED ONLY**. No production commands in this document have been executed. Requires owner approval for **the specific LV1 broker + scoped-revocation helper deployment**. Do not interpret a generic «продолжай» as approval. Do not modify VPN services, default SSH, TCP/443, DNS or shared firewall.

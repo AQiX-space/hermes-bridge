@@ -378,15 +378,25 @@ def close_reverse_session(slot,timeout_seconds=5):
     from session_guard import tcp_listeners,terminate_scoped_session
     if not isinstance(slot,int) or not 23000<=slot<=24999:raise ValueError('invalid slot')
     if slot not in tcp_listeners():return True
-    # The OpenSSH child is non-dumpable: the unprivileged broker cannot inspect
-    # /proc/<pid>/fd even when both processes share a UID. Delegate only this
-    # validated port operation to a root-owned, fixed-path helper via sudoers.
+    # Broker intentionally uses NoNewPrivileges=yes. It cannot use sudo even
+    # with sudoers, and we must not weaken that sandbox. The root helper runs
+    # ONLY via systemd AF_UNIX socket activation; it validates SO_PEERCRED,
+    # the broker's cgroup, target port, sshd UID and target process before pidfd.
     if os.geteuid()!=0:
-        import subprocess
-        proc=subprocess.run(['sudo','-n','/usr/local/sbin/hermes-close-slot',str(slot)],
-                            capture_output=True,text=True,timeout=8,check=False)
-        if proc.returncode!=0:
-            raise RuntimeError('cannot safely close reverse tunnel: scoped helper refused (exit %d)' % proc.returncode)
+        import socket
+        with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as connection:
+            connection.settimeout(8)
+            connection.connect('/run/hermes-close-slot.sock')
+            connection.sendall(('%d\n' % slot).encode('ascii'))
+            data=b''
+            while not data.endswith(b'\n') and len(data)<256:
+                next_chunk=connection.recv(256-len(data))
+                if not next_chunk:break
+                data+=next_chunk
+        try:answer=json.loads(data)
+        except (ValueError,TypeError):raise RuntimeError('cannot safely close reverse tunnel: invalid helper reply')
+        if answer.get('safe') is not True:
+            raise RuntimeError('cannot safely close reverse tunnel: scoped helper refused')
     else:
         result=terminate_scoped_session(slot,expected_uid=os.getuid())
         if not result['safe']:raise RuntimeError('cannot safely close reverse tunnel: '+result['reason'])

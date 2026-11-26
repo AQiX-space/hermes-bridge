@@ -1,0 +1,24 @@
+[Unit]
+Description=Hermes isolated one-request SSH revocation helper
+
+[Service]
+Type=exec
+User=root
+Group=root
+ExecStart=/usr/bin/python3 -I /opt/hermes-enrollment/close_scoped_socket.py
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=CAP_KILL CAP_SYS_PTRACE
+MemoryMax=96M
+TasksMax=8
+RuntimeMaxSec=12s

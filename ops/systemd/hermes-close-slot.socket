@@ -1,0 +1,14 @@
+[Unit]
+Description=Hermes isolated reverse SSH session revocation socket
+
+[Socket]
+ListenStream=/run/hermes-close-slot.sock
+SocketUser=hermes-bridge
+SocketGroup=hermes-bridge
+SocketMode=0600
+Accept=yes
+Backlog=8
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
