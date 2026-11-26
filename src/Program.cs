@@ -46,7 +46,7 @@ namespace HermesBridge {
  }
  sealed class BridgeForm : Form {
   readonly bool launchResident,resumeAfterElevation;
-  ConnectorPreferences preferences=new ConnectorPreferences(); ActivityJournal journal;
+  ConnectorPreferences preferences=new ConnectorPreferences(); ActivityJournal journal; ResidentPinStore residentPin;
   bool loadingPrefs=false;DateTime sessionStarted=DateTime.MinValue;
   string PrefsPath {get{return Path.Combine(root,"ui-preferences.ini");}}
   readonly string root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"HermesBridge");
@@ -59,15 +59,15 @@ namespace HermesBridge {
   string Key {get{return Path.Combine(root,"keys","device_ed25519");}}
   string Known {get{return Path.Combine(root,"known_hosts");}}
   Panel advanced=new Panel(); Label subtitle=new Label(), deviceInfo=new Label(), connectionInfo=new Label(), expiryInfo=new Label(); Button setup=new Button(), keyCopy=new Button(), shortcut=new Button(); LinkLabel updates=new LinkLabel(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer();
-  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); LinkLabel elevateLink=new LinkLabel(); ToolStripMenuItem elevateMenu; bool elevating=false; Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), sshServerInstall=new LinkLabel(), emergencyLink=new LinkLabel(); Button logToggle=new Button(); Label logTitle=new Label(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu; ToolStripMenuItem modeMenu; ToolStripMenuItem disableStartupMenu; ToolStripMenuItem codeMenu; string announcedCode="";
+  TextBox actionLog=new TextBox(); Label sshInfo=new Label(); LinkLabel elevateLink=new LinkLabel(); ToolStripMenuItem elevateMenu; bool elevating=false; Button uninstall=new Button(), closeApp=new Button(), copyLog=new Button(); LinkLabel installSsh=new LinkLabel(), sshCheck=new LinkLabel(), sshServerInstall=new LinkLabel(), emergencyLink=new LinkLabel(); Button logToggle=new Button(); Label logTitle=new Label(); string sshVersion=null; SshServerHealth sshHealth; bool sshHealthBusy=false; DateTime nextSshHealth=DateTime.MinValue; bool updateAvailable=false; string activeMostCode=""; bool revoking=false; bool revocationPending=false; bool leaseCheckBusy=false; bool tickBusy=false; DateTime nextLeaseCheck=DateTime.MinValue; string gatewayMode="auto", enrollmentApi=GatewayEndpoints.Primary; ToolStripMenuItem gatewayMenu; ToolStripMenuItem recoverMenu; ToolStripMenuItem modeMenu; ToolStripMenuItem disableStartupMenu; ToolStripMenuItem codeMenu; ToolStripMenuItem pinMenu; string announcedCode="";
   Color ink=Color.FromArgb(37,31,25), muted=Color.FromArgb(115,99,83), blue=Color.FromArgb(150,85,41), surface=Color.FromArgb(248,244,238);
   public BridgeForm(bool startedAsResident=false,bool resumeAfterUac=false){
    launchResident=startedAsResident;resumeAfterElevation=resumeAfterUac;
-   Text="Hermes Connector 0.3.0-beta.1"; Width=495;Height=578;MinimumSize=new Size(495,578);MaximumSize=new Size(900,578);StartPosition=FormStartPosition.CenterScreen;
+   Text="Hermes Connector 0.3.0-beta.2"; Width=495;Height=578;MinimumSize=new Size(495,578);MaximumSize=new Size(900,578);StartPosition=FormStartPosition.CenterScreen;
    Font=new Font("Segoe UI",10f);BackColor=Color.White;ForeColor=ink;FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;
-   Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));journal=new ActivityJournal(Path.Combine(root,"activity.log"));
+   Directory.CreateDirectory(root);Directory.CreateDirectory(Path.Combine(root,"keys"));journal=new ActivityJournal(Path.Combine(root,"activity.log"));residentPin=new ResidentPinStore(Path.Combine(root,"resident-pin.bin"));
    Label heading=new Label(){Text="Hermes Connector",Font=new Font("Segoe UI Semibold",19,FontStyle.Bold),Left=30,Top=24,Width=388,Height=42};Controls.Add(heading);
-   subtitle=new Label(){Text="0.3.0-beta.1 · сеанс пользователя",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
+   subtitle=new Label(){Text="0.3.0-beta.2 · сеанс пользователя",ForeColor=muted,Left=31,Top=74,Width=255,Height=27};Controls.Add(subtitle);
    Panel card=new Panel(){Left=28,Top=167,Width=403,Height=130,BackColor=surface};Controls.Add(card);
    state.Left=17;state.Top=12;state.Width=250;state.Height=44;state.Font=new Font("Segoe UI Semibold",17,FontStyle.Bold);card.Controls.Add(state);
    connectionInfo.Left=18;connectionInfo.Top=54;connectionInfo.Width=368;connectionInfo.Height=30;connectionInfo.ForeColor=muted;card.Controls.Add(connectionInfo);
@@ -144,6 +144,8 @@ namespace HermesBridge {
    modeMenu.DropDownItems.Add("Временная поддержка",null,(sender,e)=>SwitchMode(ConnectorMode.Support));
    modeMenu.DropDownItems.Add("Постоянный агент",null,(sender,e)=>SwitchMode(ConnectorMode.Resident));
    menu.Items.Add(modeMenu);
+   pinMenu=new ToolStripMenuItem("Изменить PIN доступа к настройкам");
+   pinMenu.Click+=(sender,e)=>ChangeResidentPin();menu.Items.Add(pinMenu);
    elevateMenu=new ToolStripMenuItem("Перезапустить с правами администратора");
    elevateMenu.Click+=(sender,e)=>RestartAsAdministrator();
    menu.Items.Add(elevateMenu);
@@ -271,11 +273,45 @@ namespace HermesBridge {
   [System.Runtime.InteropServices.DllImport("user32.dll")]static extern bool DestroyIcon(IntPtr handle);
   void ShowMain(){
    if(preferences.Mode==ConnectorMode.Resident){
-    tray.BalloonTipTitle="Hermes Connector — постоянный агент";
-    tray.BalloonTipText=running?"Подключение контролируется автоматически. "+host.Text:"Ожидает подтверждения или восстановления соединения.";
-    tray.ShowBalloonTip(3500);return;
+    if(!UnlockResidentToSupport())return;
    }
    Show();WindowState=FormWindowState.Normal;Activate();
+  }
+  bool EnsureResidentPin(){
+   try{
+    bool first=residentPin.InitializeDefault();
+    if(first)MessageBox.Show("Первоначальный PIN управления треем: 1111. " +
+      "Этот PIN слабый и подходит только для начальной настройки. " +
+      "Сразу измените его в меню трея «Изменить PIN». " +
+      "Остановка удалённой поддержки остаётся доступной без PIN.",
+      "Настройка PIN",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+    return true;
+   }catch(Exception ex){
+    MessageBox.Show("Не удалось подготовить PIN-хранилище: "+ex.Message,
+      "PIN постоянного агента",MessageBoxButtons.OK,MessageBoxIcon.Error);return false;
+   }
+  }
+  bool AuthorizeResidentSettings(){
+   if(preferences.Mode!=ConnectorMode.Resident)return true;
+   if(!EnsureResidentPin())return false;
+   return ResidentPinDialog.Authenticate(this,residentPin);
+  }
+  void ChangeResidentPin(){
+   if(!EnsureResidentPin())return;
+   if(ResidentPinDialog.Change(this,residentPin))LogAction("PIN управления треем изменён текущим пользователем.");
+  }
+  bool UnlockResidentToSupport(){
+   if(preferences.Mode!=ConnectorMode.Resident)return true;
+   if(!AuthorizeResidentSettings())return false;
+   try{if(WindowsStartup.Enabled())WindowsStartup.Disable();}
+   catch(Exception ex){MessageBox.Show("Не удалось отключить автозапуск: "+ex.Message,
+      "Возврат к поддержке",MessageBoxButtons.OK,MessageBoxIcon.Warning);return false;}
+   preferences.Mode=ConnectorMode.Support;
+   preferences.AutoDisconnect=false;
+   loadingPrefs=true;try{autoDisconnect.Checked=false;}finally{loadingPrefs=false;}
+   UpdateModeMenu();UpdateDeadline();SavePreferences();
+   Status("Открыта поддержка. Автозапуск выключен; текущий МОСТ остаётся активным до ручного отключения.");
+   return true;
   }
   void RestorePreferences(){
    loadingPrefs=true;
@@ -310,6 +346,7 @@ namespace HermesBridge {
   }
   void DisableStartupLocally(){
    if(preferences.Mode!=ConnectorMode.Resident)return;
+   if(!AuthorizeResidentSettings())return;
    if(MessageBox.Show("Выключить автоматический запуск Гермес Коннектора при следующем входе в Windows?\n\n"+
       "Текущий SSH-туннель не прерывается. Эта операция НЕ является отзывом разрешения на сервере. " +
       "Для полного прекращения доступа нужно отдельно завершить сеанс и дождаться подтверждения от Gate.",
@@ -341,6 +378,7 @@ namespace HermesBridge {
   }
   bool RestartAsAdministrator(){
    if(elevating||quitting)return false;
+   if(!AuthorizeResidentSettings())return false;
    if(ElevationSupport.IsElevated()){
     Status("Коннектор уже запущен с правами администратора.");return false;
    }
@@ -385,6 +423,7 @@ namespace HermesBridge {
   }
   async void SwitchMode(ConnectorMode next){
    if(next==preferences.Mode)return;
+   if(preferences.Mode==ConnectorMode.Resident&&next==ConnectorMode.Support){ShowMain();return;}
    if(running||enrolling||revoking||revocationPending||File.Exists(Path.Combine(root,"approval-ticket"))){
     Status("Сначала заверши текущее разрешение МОСТ; изменение режима требует нового подтверждения на сервере.");return;
    }
@@ -402,6 +441,7 @@ namespace HermesBridge {
     requestAdminForCurrentSession=option==DialogResult.Yes;
    }
    if(next==ConnectorMode.Resident){
+    if(!EnsureResidentPin())return;
     string message="Включить постоянный агент для текущего пользователя Windows?\n\n"+
      "Коннектор будет запускаться после входа в этот профиль и восстанавливать туннель. " +
      "SSH-подключение не даёт бессрочных прав само по себе: постоянное разрешение отдельно утверждается на Gate. " +
@@ -538,6 +578,7 @@ namespace HermesBridge {
    foreach(ToolStripMenuItem item in gatewayMenu.DropDownItems)item.Checked=String.Equals(item.Tag as string,gatewayMode,StringComparison.Ordinal);
   }
   async Task RecoverFromDeadGateAsync(){
+   if(!AuthorizeResidentSettings())return;
    if(running||enrolling||revoking||updating){
     MessageBox.Show("Аварийный переход возможен только после остановки локального туннеля и завершения текущих операций.","МОСТ",MessageBoxButtons.OK,MessageBoxIcon.Warning);return;
    }
@@ -561,6 +602,7 @@ namespace HermesBridge {
    }catch(Exception ex){MessageBox.Show("Аварийный переход не выполнен: "+ex.Message,"МОСТ",MessageBoxButtons.OK,MessageBoxIcon.Error);}
   }
   void SetGatewayMode(string value){
+   if(!AuthorizeResidentSettings())return;
    if(running||enrolling||revoking||revocationPending||File.Exists(Path.Combine(root,"approval-ticket"))||(!String.IsNullOrWhiteSpace(slot.Text)&&File.Exists(Known))){
     Status("Сначала заверши разрешение и дождись подтверждённого отзыва на текущем Gate.");return;
    }

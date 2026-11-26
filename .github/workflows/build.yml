@@ -24,7 +24,7 @@ jobs:
           $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           & $csc /nologo /target:exe /optimize+ /out:HermesBridgeUpdater.exe updater\Program.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $csc /nologo /target:winexe /optimize+ /win32icon:assets\HermesConnector.ico /out:HermesBridge.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Security.dll /reference:System.ServiceProcess.dll /resource:HermesBridgeUpdater.exe,HermesBridgeUpdater.exe src\Program.cs src\ElevationSupport.cs src\SshTransportOptions.cs src\SingleInstanceGate.cs src\ReconnectPolicy.cs src\ConnectorPreferences.cs src\ActivityJournal.cs src\OpenSshComponents.cs src\WindowsStartup.cs src\UserSessionAgent.cs src\EmergencyRecovery.cs src\TunnelProbe.cs src\SshEvents.cs src\EnrollmentClient.cs src\TicketStore.cs src\UpdateClient.cs src\GitHubUpdater.cs src\VersionInfo.cs src\SshServerHealth.cs
+          & $csc /nologo /target:winexe /optimize+ /win32icon:assets\HermesConnector.ico /out:HermesBridge.exe /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Security.dll /reference:System.ServiceProcess.dll /resource:HermesBridgeUpdater.exe,HermesBridgeUpdater.exe src\Program.cs src\ResidentPinDialog.cs src\ResidentPinStore.cs src\ElevationSupport.cs src\SshTransportOptions.cs src\SingleInstanceGate.cs src\ReconnectPolicy.cs src\ConnectorPreferences.cs src\ActivityJournal.cs src\OpenSshComponents.cs src\WindowsStartup.cs src\UserSessionAgent.cs src\EmergencyRecovery.cs src\TunnelProbe.cs src\SshEvents.cs src\EnrollmentClient.cs src\TicketStore.cs src\UpdateClient.cs src\GitHubUpdater.cs src\VersionInfo.cs src\SshServerHealth.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-FileHash HermesBridge.exe -Algorithm SHA256 | Format-List
           $sig=Get-AuthenticodeSignature HermesBridge.exe
@@ -59,7 +59,7 @@ jobs:
           .\UpdaterVersionTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $exeVersion=(Get-Item HermesBridge.exe).VersionInfo.ProductVersion
-          if ($exeVersion -cne '0.3.0-beta.1') { throw "Wrong packaged EXE ProductVersion: $exeVersion" }
+          if ($exeVersion -cne '0.3.0-beta.2') { throw "Wrong packaged EXE ProductVersion: $exeVersion" }
       - name: Cryptographic update regression tests
         shell: pwsh
         run: |
@@ -167,6 +167,14 @@ jobs:
           & $csc /nologo /target:exe /out:WindowsStartupTests.exe src\WindowsStartup.cs tests\WindowsStartupTests.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\WindowsStartupTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: PIN access and persistent lockout regression tests
+        shell: pwsh
+        run: |
+          $csc="$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /target:exe /out:ResidentPinStoreTests.exe /reference:System.Security.dll src\ResidentPinStore.cs tests\ResidentPinStoreTests.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\ResidentPinStoreTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Windows UAC same-identity launch guard tests
         shell: pwsh
