@@ -43,7 +43,7 @@ than silently substituting the 7200-second default. A zero-second duration
 means unlimited until explicit revoke and is not allowed merely because a
 client requested it; operator must pass `--ttl-seconds 0` explicitly.
 
-## Implemented in development branch (not production)
+## Client implemented in development; server deployment status tracked below
 
 | Requirement | Source | Test | Status |
 |---|---|---|---|
@@ -53,7 +53,7 @@ client requested it; operator must pass `--ttl-seconds 0` explicitly.
 | User-scoped auto-start | `src/WindowsStartup.cs` | HKCU enable/disable test | CI verified, live reboot/login pending |
 | Support/resident preferences | `src/ConnectorPreferences.cs` | Persistence and idle timeout tests | CI verified |
 | Backoff and reconnect on broken tunnel | `src/ReconnectPolicy.cs` | Retry sequence tests | CI verified; live outage and restore pending |
-| Requested session lifetime on Gate | `server/enrollment/service.py` | SQLite migration, mode/lease tests | CI verified; GR2 deployment pending owner approval |
+| Requested session lifetime on Gate | `server/enrollment/service.py` | SQLite migration, mode/lease tests | CI verified; broker GR2 deployed and tested 2026-11-26 |
 | Expandable persistent, sanitized 512-KiB activity journal | `src/Program.cs`, `src/ActivityJournal.cs` | Windows journal rollover, persistence and secret-redaction tests | CI verified; live GUI acceptance pending |
 | Never silently impersonate different user | `src/UserSessionAgent.cs` | Same-token command test | CI verified |
 | Offline/unavailable Gate local disable | `src/Program.cs` | Windows compile | Live click-through pending |
@@ -76,11 +76,23 @@ client requested it; operator must pass `--ttl-seconds 0` explicitly.
 - Dev EXE from CI `45333884706` SHA256 `a843c8255de3dcb19dc2d2f9cc41c404f7eed29645a2bdd56a0ed7d92503dd1f` was checked on AlexHUB; Defender `found no threats` and exit 0; test copy removed. This is not installed in the user session or signed.
 - Live GR2 (LV1) `doctor.ok=true` but uses old schema without `requested_mode` or `requested_lease_seconds`. Synthetic regression on the observed 12-column schema PASS (`server/enrollment/test_live_schema_migration.py`). Production deployment and live resident authorization are NOT approved; runbook `ops/LV1-RESIDENT-LEASE-DEPLOY.md` prepared only.
 
+## Verification checkpoint — 2026-11-26
+
+- **Live LV1 verified again:** `hermes-enrollment.service`, `hermes-bridge-sshd.service`, `hermes-close-slot.socket`, Nginx all active; broker SHA256 `143aa40d133cd4bb6547aeff782ccb510f49c035cb774e8cab8905caef4d5ac2`; socket helper SHA256 `407e49d5eec6b30ee017f473e5306109fbd0e261179aef65dc71ee86fc1d5818`. `NoNewPrivileges=yes`; DB contains `requested_mode`/`requested_lease_seconds`; `doctor.ok=true`, **one existing approved authorization**, zero revoking. Existing authorization was not altered.
+- Real live resident enrollment, explicitly unlimited approval, reverse SSH, immediate socket-scoped revoke HTTP 200 and listener removal were already recorded and passed on 2026-11-26. Do not repeat a destructive test on another customer's granted port.
+- Test regression after replacing sudo with AF_UNIX helper was fixed in `tools/test_session_closer_linux.py`: isolated CI must fail closed if production socket is absent. Windows + Linux CI run `45883522997` **success**.
+- Fixed mislabelled Windows 0.3 EXE: previously assembly metadata and `VERSION` still claimed `0.2.9` while GUI claimed 0.3. Current candidate is `0.3.0-beta.0`; version ordering and EXE metadata regression passed Windows CI `45885203196`.
+- Exact Windows candidate SHA256: `1c086bcc597f15fb13f7282fe05d0b2e7d6e94dc28364d09f57db34009cee52d`. Independently verified on ALEXHUB; Windows Defender `found no threats` (exit 0, not skipped). Staged in an ACL-protected, read-only-to-users folder `C:\ProgramData\HermesConnector\staging-v0.3.0-beta.0\HermesConnector-0.3.0-beta.0.exe`. **Not launched under Alex or installed.** The previous `C:\Users\Alex\AppData\Local\HermesBridge\HermesConnector.exe` remains unchanged at 0.2.9; no Connector process was running at inspection.
+- Final Windows approval still requires the real user **Alex** to launch this preview, confirm enrollment and an operator HMAC command with `whoami` under Alex, then verify idle, stop, revoke, start after login and rollback. Technical SSH user `aqixssh` is **not** a substitute for this test.
+- This branch and the production Gate are not a signed stable release. Do not publish a public prerelease to all existing 0.2.9 updater clients before controlled end-user acceptance.
+
 ## Not yet delivered
 
-1. **Linux and macOS installers/applications** with matching GUI/tray,
-   secure local credential storage, per-user launch and service management;
-   current client is Windows WinForms on .NET Framework, not cross-platform.
+1. **Linux/macOS end-user acceptance:** four unsigned PyInstaller packages (Linux
+   x64/ARM64, macOS Intel/Apple Silicon) and a development Tk/tray UI were built
+   and tested in CI, including signed current-user commands through an isolated
+   real `ssh -R`. Physical desktop/install/reboot checks, signing/notarization
+   and self-update are still outstanding.
 2. **Truly always available before OS login / after logout**: HKCU Run starts
    only when the user logs in. A dedicated, explicitly provisioned service
    identity with defined rights and recovery is necessary for unattended
@@ -91,9 +103,11 @@ client requested it; operator must pass `--ttl-seconds 0` explicitly.
    path exists but needs a verified and licensed package fallback.
 4. Operator-selectable other-account execution mode; current implementation
    deliberately refuses implicit account switching.
-5. GR2 production upgrade for lease negotiation, operator helper and safe
-   revocation of active tunnel. No production deployment performed under this
-   branch; use backup/rollback and explicit owner approval.
+5. **GR2 already deployed on 2026-11-26:** reviewed broker, resident lease
+   negotiation and protected socket-activated live revocation passed E2E.
+   See `ops/LV1-ROOT-SOCKET-REVOKE-DEPLOY.md`. Still outstanding: verify client
+   0.3 on the actual interactive `Alex` desktop, continuous idle soak and
+   reconnect after changing networks; protect currently active approvals.
 6. **Real high-availability across independent Gate failures for resident**:
    the client currently re-establishes its approved Gate tunnel, but cannot
    automatically move a live grant to the other broker. Full HA requires
